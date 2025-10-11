@@ -187,7 +187,7 @@ DISTANCE_THRESHOLD = 0.6 # Loosened for higher yield
 N_PERTURBATIONS_PER_SEED = 10
 COMBINATORIAL_SAMPLE_FRACTION = 0.05 # Sample 5% of the massive combinatorial space
 
-dataset_path = 'toy_steady_states_multistage_corrected.csv'
+dataset_path = os.path.join('data', 'toy_steady_states_multistage_corrected.csv')
 
 if not os.path.exists(dataset_path):
     # Stage 1
