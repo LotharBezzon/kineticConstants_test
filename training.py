@@ -45,3 +45,6 @@ for epoch in range(1, epochs + 1):
 	train_loss = train()
 	val_loss = validate()
 	print(f"Epoch {epoch}: Train Loss = {train_loss:.6f}, Val Loss = {val_loss:.6f}")
+	if epoch % 2 == 0:
+		torch.save(model.state_dict(), f"model_epoch_{epoch}.pt")
+		print(f"Model parameters saved at epoch {epoch}.")

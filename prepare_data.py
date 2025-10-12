@@ -13,12 +13,19 @@ data = pd.read_csv(os.path.join('data', 'toy_steady_states_multistage_corrected.
 
 # --- BUILD GRAPH ---
 
+
 # Build node features matrix: shape (num_samples, 5, 2) where each node has [v0, vss]
-v0 = torch.stack([torch.tensor(data[f'v0_{i}'].values, dtype=torch.float) for i in range(1, 6)], dim=1)  # (num_samples, 5)
-vss = torch.stack([torch.tensor(data[f'vss_{i}'].values, dtype=torch.float) for i in range(1, 6)], dim=1)  # (num_samples, 5)
+v0 = torch.stack([torch.tensor(np.log10(data[f'v0_{i}'].values), dtype=torch.float) for i in range(1, 6)], dim=1)  # (num_samples, 5)
+vss = torch.stack([torch.tensor(np.log10(data[f'vss_{i}'].values), dtype=torch.float) for i in range(1, 6)], dim=1)  # (num_samples, 5)
 node_features_all = torch.stack([v0, vss], dim=2)  # (num_samples, 5, 2)
 
-# Add a sixth node (particle_bath) with features [1, 1] for each sample
+# --- NORMALIZE NODE FEATURES (excluding particle_bath) ---
+node_features_flat = node_features_all.reshape(-1, 2)  # (num_samples*5, 2)
+node_mean = node_features_flat.mean(dim=0)
+node_std = node_features_flat.std(dim=0)
+node_features_all = (node_features_all - node_mean) / (node_std + 1e-8)
+
+# Add a sixth node (particle_bath) with features [1, 1] for each sample (do not normalize this node)
 particle_bath = torch.ones((node_features_all.shape[0], 1, 2), dtype=torch.float)  # (num_samples, 1, 2)
 node_features_all = torch.cat([particle_bath, node_features_all], dim=1)  # (num_samples, 6, 2)
 
@@ -26,6 +33,21 @@ node_features_all = torch.cat([particle_bath, node_features_all], dim=1)  # (num
 # Identify all kij columns (e.g., k12, k23, etc.)
 kij_cols = [col for col in data.columns if col.startswith('k') and len(col) == 3 and col[1].isdigit() and col[2].isdigit()]
 
+
+# --- NORMALIZE EDGE ATTRIBUTES ---
+all_edge_attrs = []
+for idx in range(node_features_all.shape[0]):
+	for kij in kij_cols:
+		all_edge_attrs.append(np.log10(data[kij].iloc[idx]))
+if all_edge_attrs:
+	all_edge_attrs = torch.tensor(all_edge_attrs, dtype=torch.float)
+	edge_mean = all_edge_attrs.mean()
+	edge_std = all_edge_attrs.std()
+else:
+	edge_mean = torch.tensor(0.0)
+	edge_std = torch.tensor(1.0)
+
+# --- CREATE DATA OBJECTS WITH NORMALIZED FEATURES ---
 data_list = []
 for idx in range(node_features_all.shape[0]):
 	node_features = node_features_all[idx]  # shape (6, 2)
@@ -35,7 +57,9 @@ for idx in range(node_features_all.shape[0]):
 		i = int(kij[1])
 		j = int(kij[2])
 		edge_index.append([i, j])
-		edge_attr.append([data[kij].iloc[idx]])
+		# Normalize edge attribute
+		norm_edge = (data[kij].iloc[idx] - edge_mean.item()) / (edge_std.item() + 1e-8)
+		edge_attr.append([norm_edge])
 	if edge_index:
 		edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()  # shape (2, num_edges)
 		edge_attr = torch.tensor(edge_attr, dtype=torch.float)  # shape (num_edges, 1)
