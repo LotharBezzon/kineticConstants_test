@@ -58,7 +58,7 @@ for idx in range(node_features_all.shape[0]):
 		j = int(kij[2])
 		edge_index.append([i, j])
 		# Normalize edge attribute
-		norm_edge = (data[kij].iloc[idx] - edge_mean.item()) / (edge_std.item() + 1e-8)
+		norm_edge = (np.log10(data[kij].iloc[idx]) - edge_mean.item()) / (edge_std.item() + 1e-8)
 		edge_attr.append([norm_edge])
 	if edge_index:
 		edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()  # shape (2, num_edges)
