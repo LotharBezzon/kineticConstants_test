@@ -19,7 +19,7 @@ class mlp(torch.nn.Module):
     """
     def __init__(self, in_channels, 
                  out_channel, 
-                 hidden_dim=32, 
+                 hidden_dim=64, 
                  hidden_num=2, 
                  normalize=False, 
                  bias=True):
@@ -47,8 +47,8 @@ class mlp(torch.nn.Module):
 class MyConv(MessagePassing):
     def __init__(self, in_channels, out_channels):
         super().__init__(aggr='sum')
-        self.mlp = mlp(2*in_channels, out_channels)
-        self.mlp_out = mlp(out_channels, out_channels)
+        self.mlp = mlp(2*in_channels, out_channels, bias=False)
+        self.mlp_out = mlp(out_channels, out_channels, bias=False)
 
     def forward(self, edge_index, x):
         aggregated_message = self.propagate(edge_index, x=x)
@@ -58,25 +58,23 @@ class MyConv(MessagePassing):
         return self.mlp(torch.cat([x_i, x_j], dim=-1))
 
 class EdgePredictorGNN(torch.nn.Module):
-	def __init__(self, in_channels, hidden_channels, edge_out_channels):
-		super().__init__()
-		self.conv1 = MyConv(in_channels, hidden_channels)
-		self.conv2 = MyConv(hidden_channels, hidden_channels)
-		self.edge_mlp = torch.nn.Sequential(
-			torch.nn.Linear(2 * hidden_channels, hidden_channels),
-			torch.nn.ReLU(),
-			torch.nn.Linear(hidden_channels, edge_out_channels)
-		)
-		
+    def __init__(self, in_channels, hidden_channels, edge_out_channels):
+        super().__init__()
+        self.conv1 = MyConv(in_channels, hidden_channels)
+        self.conv2 = MyConv(hidden_channels, hidden_channels)
+        self.norm = GraphNorm(hidden_channels)
+        self.edge_mlp = mlp(2 * hidden_channels, edge_out_channels)
 
-	def forward(self, data):
-		x, edge_index = data.x, data.edge_index
-		x = self.conv1(edge_index, x)
-		x = self.conv2(edge_index, x)
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = self.conv1(edge_index, x)
+        x = self.norm(x)
+        x = self.conv2(edge_index, x)
+        x = self.norm(x)
 
-		# For each edge, concatenate the embeddings of the two nodes
-		row, col = edge_index
-		edge_features = torch.cat([x[row], x[col]], dim=1)
-		pred_edge_attr = self.edge_mlp(edge_features)
+        # For each edge, concatenate the embeddings of the two nodes
+        row, col = edge_index
+        edge_features = torch.cat([x[row], x[col]], dim=1)
+        pred_edge_attr = self.edge_mlp(edge_features)
 
-		return pred_edge_attr
+        return pred_edge_attr
