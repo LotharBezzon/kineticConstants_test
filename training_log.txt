@@ -78,3 +78,9 @@ Epoch 2: Train Loss = 0.461253, Val Loss = 0.444560, Learning Rate = 0.0008
 Epoch 3: Train Loss = 0.454638, Val Loss = 0.441266, Learning Rate = 0.0007
 Epoch 4: Train Loss = 0.450686, Val Loss = 0.441176, Learning Rate = 0.0007
 Epoch 5: Train Loss = 0.447799, Val Loss = 0.437597, Learning Rate = 0.0006
+Epoch 1: Train Loss = 0.396691, Val Loss = 0.367207, Learning Rate = 0.0009
+Epoch 2: Train Loss = 0.370077, Val Loss = 0.365662, Learning Rate = 0.0008
+Epoch 3: Train Loss = 0.364537, Val Loss = 0.363423, Learning Rate = 0.0007
+Epoch 4: Train Loss = 0.361586, Val Loss = 0.357089, Learning Rate = 0.0007
+Epoch 5: Train Loss = 0.359274, Val Loss = 0.354740, Learning Rate = 0.0006
+Epoch 6: Train Loss = 0.357596, Val Loss = 0.355192, Learning Rate = 0.0005

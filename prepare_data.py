@@ -29,7 +29,7 @@ node_features_all = (node_features_all - node_mean) / (node_std + 1e-8)
 particle_bath = torch.zeros((node_features_all.shape[0], 1, 2), dtype=torch.float)  # (num_samples, 1, 2)
 node_features_all = torch.cat([particle_bath, node_features_all, particle_bath], dim=1)  # (num_samples, 6, 2)
 
-# Create a list of Data objects, each with 6 nodes (1 sample per Data object), node features are [v0, vss, particle_bath]
+# Create a list of Data objects, each with 6 nodes (1 sample per Data object), node features are [v0, vss]
 # Identify all kij columns (e.g., k12, k23, etc.)
 kij_cols = [col for col in data.columns if col.startswith('k') and len(col) == 3 and col[1].isdigit() and col[2].isdigit()]
 
@@ -46,9 +46,11 @@ if all_edge_attrs:
 else:
 	edge_mean = torch.tensor(0.0)
 	edge_std = torch.tensor(1.0)
+all_edge_attrs = (all_edge_attrs - edge_mean) / (edge_std + 1e-8)
 
 # --- CREATE DATA OBJECTS WITH NORMALIZED FEATURES ---
 data_list = []
+edge_count = 0
 for idx in range(node_features_all.shape[0]):
 	node_features = node_features_all[idx]  # shape (6, 2)
 	edge_index = []
@@ -56,10 +58,15 @@ for idx in range(node_features_all.shape[0]):
 	for kij in kij_cols:
 		i = int(kij[1])
 		j = int(kij[2])
+		if [j, i] in edge_index:	# skip duplicate edges and subtract corresponding features
+			edge_attr[edge_index.index([j, i])] = [(edge_attr[edge_index.index([j, i])][0] - all_edge_attrs[edge_count].item()) / np.sqrt(2)]
+			edge_count += 1
+			continue
 		edge_index.append([i, j])
 		# Normalize edge attribute
-		norm_edge = (np.log10(data[kij].iloc[idx]) - edge_mean.item()) / (edge_std.item() + 1e-8)
+		norm_edge = all_edge_attrs[edge_count].item()
 		edge_attr.append([norm_edge])
+		edge_count += 1
 	if edge_index:
 		edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()  # shape (2, num_edges)
 		edge_attr = torch.tensor(edge_attr, dtype=torch.float)  # shape (num_edges, 1)
