@@ -62,10 +62,8 @@ class EdgePredictorGNN(torch.nn.Module):
         super().__init__()
         self.conv1 = MyConv(in_channels, hidden_channels)
         self.conv2 = MyConv(hidden_channels, hidden_channels)
-        self.conv3 = MyConv(hidden_channels, hidden_channels)
         self.norm1 = GraphNorm(hidden_channels)
         self.norm2 = GraphNorm(hidden_channels)
-        self.norm3 = GraphNorm(hidden_channels)
         self.edge_mlp = mlp(2 * hidden_channels, edge_out_channels)
 
     def forward(self, data):
@@ -74,12 +72,10 @@ class EdgePredictorGNN(torch.nn.Module):
         x = self.norm1(x)
         x = self.conv2(edge_index, x)
         x = self.norm2(x)
-        x = self.conv3(edge_index, x)
-        x = self.norm3(x)
 
         # For each edge, concatenate the embeddings of the two nodes
         row, col = edge_index
-        edge_features = torch.cat([x[row], x[col] - x[row]], dim=1)
+        edge_features = torch.cat([x[row], x[col]], dim=1)
         pred_edge_attr = self.edge_mlp(edge_features)
 
         return pred_edge_attr

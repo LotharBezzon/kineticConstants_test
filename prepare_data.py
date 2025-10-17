@@ -25,9 +25,9 @@ node_mean = node_features_flat.mean(dim=0)
 node_std = node_features_flat.std(dim=0)
 node_features_all = (node_features_all - node_mean) / (node_std + 1e-8)
 
-# Add a sixth node (particle_bath) with features [0, 0] for each sample (do not normalize this node)
+# Add a first and a sixth node (particle_baths) with features [0, 0] for each sample (do not normalize this node)
 particle_bath = torch.zeros((node_features_all.shape[0], 1, 2), dtype=torch.float)  # (num_samples, 1, 2)
-node_features_all = torch.cat([particle_bath, node_features_all], dim=1)  # (num_samples, 6, 2)
+node_features_all = torch.cat([particle_bath, node_features_all, particle_bath], dim=1)  # (num_samples, 6, 2)
 
 # Create a list of Data objects, each with 6 nodes (1 sample per Data object), node features are [v0, vss, particle_bath]
 # Identify all kij columns (e.g., k12, k23, etc.)
