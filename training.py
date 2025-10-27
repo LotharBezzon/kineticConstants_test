@@ -16,7 +16,18 @@ epochs = 10
 model = EdgePredictorGNN(in_channels, hidden_channels, edge_out_channels).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
-loss_fn = torch.nn.MSELoss()
+loss_fn = torch.nn.L1Loss(reduction='none')
+
+def weighted_mae(pred, target):
+	"""Compute mean absolute error weighted by absolute target value.
+
+	loss = |pred - target| * 1 + |target|
+	return mean(loss)
+	"""
+	per_elem = loss_fn(pred, target)
+	weights = 1 + target.abs()
+	weighted = per_elem * weights
+	return weighted.mean()
 
 def train():
 	model.train()
@@ -25,7 +36,7 @@ def train():
 		batch = batch.to(device)
 		optimizer.zero_grad()
 		pred = model(batch)
-		loss = loss_fn(pred, batch.edge_attr)
+		loss = weighted_mae(pred, batch.edge_attr)
 		loss.backward()
 		optimizer.step()
 		total_loss += loss.item() * batch.num_graphs
@@ -38,7 +49,7 @@ def validate():
 		for batch in val_loader:
 			batch = batch.to(device)
 			pred = model(batch)
-			loss = loss_fn(pred, batch.edge_attr)
+			loss = weighted_mae(pred, batch.edge_attr)
 			total_loss += loss.item() * batch.num_graphs
 	return total_loss / len(val_loader.dataset)
 
@@ -50,5 +61,5 @@ for epoch in range(1, epochs + 1):
 		f.write(f"Epoch {epoch}: Train Loss = {train_loss:.6f}, Val Loss = {val_loss:.6f}, Learning Rate = {scheduler.get_last_lr()[0]:.4f}\n")
 	print(f"Epoch {epoch}: Train Loss = {train_loss:.6f}, Val Loss = {val_loss:.6f}")
 	if epoch % 2 == 0:
-		torch.save(model.state_dict(), f"model_epoch_{epoch}.pt")
+		torch.save(model.state_dict(), f"model_epoch_{epoch}_L1_corrected.pt")
 		print(f"Model parameters saved at epoch {epoch}.")

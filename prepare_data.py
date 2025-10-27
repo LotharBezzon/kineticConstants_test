@@ -58,10 +58,10 @@ for idx in range(node_features_all.shape[0]):
 	for kij in kij_cols:
 		i = int(kij[1])
 		j = int(kij[2])
-		if [j, i] in edge_index:	# skip duplicate edges and subtract corresponding features
+		'''if [j, i] in edge_index:	# skip duplicate edges and subtract corresponding features
 			edge_attr[edge_index.index([j, i])] = [(edge_attr[edge_index.index([j, i])][0] - all_edge_attrs[edge_count].item()) / np.sqrt(2)]
 			edge_count += 1
-			continue
+			continue'''
 		edge_index.append([i, j])
 		# Normalize edge attribute
 		norm_edge = all_edge_attrs[edge_count].item()
