@@ -68,7 +68,7 @@ class Simulator:
         plt.savefig(os.path.join('simulation', 'figures', 'graph_nearest_neighbors.png'))
         plt.show()
 
-    def sample_kinetic_constants(self, mean=0, sigma=0.5, degr_sigma=0.1, prod_sigma=0.1):
+    def sample_kinetic_constants(self, mean=0, sigma=0.5, degr_sigma=0.2, prod_sigma=0.1):
         """Samples the logarithm of kinetic constants for each edge in the graph.
         Args:
             mean (float): Mean of the normal distribution.
@@ -118,7 +118,7 @@ class Simulator:
         self.concentrations = concentrations
         return self.concentrations
     
-    def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-3, max_iterations=10000, time_step=None, track_concentrations=[]):
+    def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[]):
         """Run a temporal simulation until steady state is reached.
         Args:
             initial_concentrations (np.ndarray): Initial concentrations of the nodes.
@@ -136,7 +136,7 @@ class Simulator:
 
         num_nodes = self.kinetic_constants.shape[0]
         if initial_concentrations is None:
-            concentrations = np.ones(num_nodes)
+            concentrations = np.ones(num_nodes) 
 
         tracked_concentrations = [[] for node in track_concentrations]
 
