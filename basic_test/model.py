@@ -12,10 +12,10 @@ class mlp(torch.nn.Module):
     Args:
         in_channels (int): Number of input features.
         out_channel (int): Number of output features.
-        hidden_dim (int, optional): Number of hidden units in each hidden layer. Default is 32.
+        hidden_dim (int, optional): Number of hidden units in each hidden layer. Default is 64.
         hidden_num (int, optional): Number of hidden layers. Default is 2.
         normalize (bool, optional): Whether to apply batch normalization. Default is False.
-        bias (bool, optional): Whether to include bias in the linear layers. Default is False.
+        bias (bool, optional): Whether to include bias in the linear layers. Default is True.
     """
     def __init__(self, in_channels, 
                  out_channel, 
