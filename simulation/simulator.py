@@ -4,6 +4,7 @@ import networkx as nx
 from matplotlib.colors import ListedColormap
 import pandas as pd
 import os
+import seaborn as sns
 
 class Simulator:
     """A simulator to produce data to train a kinetic constants estimator.
@@ -23,15 +24,16 @@ class Simulator:
         self.random_seed = random_seed
 
     def build_graph(self, num_nodes=10, connection_prob=0.1, adjacency_matrix=None):  # connection_prob is 0.024 in the data
-        """Creates a random graph represented as an adjacency matrix. If adjacency_matrix is provided, it uses that instead of generating a new one.
+        """Creates a random graph represented as an adjacency matrix. If `adjacency_matrix` is provided, it uses that instead of generating a new one.
         Args:
             num_nodes (int): Number of nodes in the graph.
-            connection_prob (float): Probability of connection between nodes."""
+            connection_prob (float): Probability of connection between nodes.
+            adjacency_matrix (np.ndarray or pd.DataFrame): Optional adjacency matrix to use instead of generating a new one."""
         
-        np.random.seed(self.random_seed)
         if adjacency_matrix is not None:
             self.adjacency_matrix = adjacency_matrix
         else:
+            np.random.seed(self.random_seed)
             self.adjacency_matrix = (np.random.rand(num_nodes, num_nodes) < connection_prob).astype(int)
         np.fill_diagonal(self.adjacency_matrix, 0)  # No self-loops
         return self.adjacency_matrix
@@ -58,7 +60,7 @@ class Simulator:
         fig = plt.figure(figsize=(12, 8))
         colors = ['black', 'red', 'orange', 'yellow']
         for n in reversed(range(1, 5)):
-            nth_matrix = self.nth_nn(n, self.adjacency_matrix)
+            nth_matrix = self.nth_nn(n, np.array(self.adjacency_matrix))
             nth_matrix[nth_matrix > 0] = 1  # Binarize
             cmap = ListedColormap([(1,1,1,0)] + [colors[n-1]])
             plt.imshow(nth_matrix, cmap=cmap, interpolation='nearest', vmin=0, vmax=1)
@@ -68,7 +70,7 @@ class Simulator:
         plt.savefig(os.path.join('simulation', 'figures', 'graph_nearest_neighbors.png'))
         plt.show()
 
-    def sample_kinetic_constants(self, mean=0, sigma=0.5, degr_sigma=0.2, prod_sigma=0.1):
+    def sample_kinetic_constants(self, mean=0, sigma=1.0, degr_sigma=1.0, prod_sigma=1.0, random_seed=42):
         """Samples the logarithm of kinetic constants for each edge in the graph.
         Args:
             mean (float): Mean of the normal distribution.
@@ -77,11 +79,13 @@ class Simulator:
         if not hasattr(self, 'adjacency_matrix'):
             raise ValueError("Adjacency matrix not found. Please build the graph first.")
         
+        np.random.seed(random_seed)
+        
         log_kinetic_constants = np.random.normal(mean, sigma, size=self.adjacency_matrix.shape)
         log_degradation = np.random.normal(mean, degr_sigma, size=self.adjacency_matrix.shape[0])
         log_production = np.random.normal(mean, prod_sigma, size=self.adjacency_matrix.shape[0])
         self.kinetic_constants = np.exp(log_kinetic_constants)
-        self.kinetic_constants *= self.adjacency_matrix  # Zero out non-edges
+        self.kinetic_constants *= np.array(self.adjacency_matrix)  # Zero out non-edges
         self.degradation_constants = np.exp(log_degradation)
         self.production_constants = np.exp(log_production)
         
@@ -140,17 +144,17 @@ class Simulator:
 
         tracked_concentrations = [[] for node in track_concentrations]
 
+        k_out = np.sum(self.kinetic_constants, axis=1)
         for iteration in range(max_iterations):
             if iteration == max_iterations - 1:
                 raise Exception("Simulation did not converge within the maximum number of iterations.")
             
-            dCdt = np.zeros(num_nodes)
-            for i in range(num_nodes):
-                production = np.sum(self.kinetic_constants[:, i] * concentrations) + self.production_constants[i]
-                degradation = (np.sum(self.kinetic_constants[i, :] ) + self.degradation_constants[i]) * concentrations[i]
-                dCdt[i] = production - degradation
+            production = self.kinetic_constants.T @ concentrations + self.production_constants
+            degradation = (k_out + self.degradation_constants) * concentrations
+            dCdt = production - degradation
+
             new_concentrations = concentrations + dCdt * time_step
-            new_concentrations[new_concentrations < 0] = 0  # No negative concentrations
+            new_concentrations[new_concentrations < 0] = 0
 
             for i, node in enumerate(track_concentrations):
                 tracked_concentrations[i].append(new_concentrations[node])
@@ -174,15 +178,26 @@ class Simulator:
             plt.show()
         return self.concentrations
     
-    def run_noisy_simulation(self, concentration_noise=0.05, log_kinetic_constants_noise=0.01, steps=1000, time_step=None, track_concentrations=[]):
+    def run_noisy_simulation(self, L=None, concentration_noise=0.05, log_kinetic_constants_noise=0.01, steps=1000, time_step=None, track_concentrations=[]):
         """Starting from euilibrium concentrations, run a noisy simulation to collect data. 
         Noise on concentrations in gaussian (to replicate pixel heterogeneity), while noise on kinetic constants is lognormal.
         Args:
+            L (np.ndarray): Cholesky decomposition of the correlation matrix to introduce correlations in the noise.
             concentration_noise (float): Standard deviation of the noise added to concentrations.
             log_kinetic_constants_noise (float): Standard deviation of the noise added to kinetic constants.
             steps (int): Number of steps to run the simulation.
             time_step (float): Time step for the simulation. If None, it will be set to $k_{max}^{-1}/10$.
         """
+        # Try to use CuPy if available for GPU acceleration, else NumPy.
+        use_cupy = False
+        try:
+            import cupy as cp
+            use_cupy = True
+        except Exception:
+            import numpy as np
+            cp = None
+
+        xp = cp if use_cupy else np
 
         if not hasattr(self, 'concentrations'):
             raise ValueError("Concentrations not found. Please run equilibration first.")
@@ -190,38 +205,53 @@ class Simulator:
         if time_step is None:
             k_max = np.max(self.kinetic_constants)
             time_step = 1 / (10 * k_max)
-        
-        num_nodes = self.kinetic_constants.shape[0]
-        concentrations = self.concentrations.copy()
+
+        if L is None:
+            L = xp.eye(self.kinetic_constants.shape[0])
+
+        # Move arrays to chosen backend
+        concentrations = xp.array(self.concentrations, copy=True)
+        kin = xp.array(self.kinetic_constants)
+        degr = xp.array(self.degradation_constants)
+        prod = xp.array(self.production_constants)
+        L = xp.array(L)
 
         concentration_data = []
 
         for step in range(steps):
-            concentrations += concentrations * np.random.normal(0, concentration_noise, size=concentrations.shape)  # Add noise
-            concentrations[concentrations < 0] = 0  # No negative concentrations
-            noisy_kinetic_constants = self.kinetic_constants * np.exp(np.random.normal(0, log_kinetic_constants_noise, size=self.kinetic_constants.shape))
-            noisy_degradation_constants = self.degradation_constants * np.exp(np.random.normal(0, log_kinetic_constants_noise, size=self.degradation_constants.shape))
-            noisy_production_constants = self.production_constants * np.exp(np.random.normal(0, log_kinetic_constants_noise, size=self.production_constants.shape))
-            dCdt = np.zeros(num_nodes)
-            for i in range(num_nodes):
-                production = np.sum(noisy_kinetic_constants[:, i] * concentrations) + noisy_production_constants[i]
-                degradation = (np.sum(noisy_kinetic_constants[i, :]) + noisy_degradation_constants[i]) * concentrations[i]
-                dCdt[i] = production - degradation
-            concentrations += dCdt * time_step
-            concentrations[concentrations < 0] = 0  # No negative concentrations
+            # correlated gaussian noise: draw vector z ~ N(0,1), then L @ z
+            z = xp.random.normal(0, concentration_noise, size=concentrations.shape)
+            correlated = z @ L.T
+            concentrations = concentrations + concentrations * correlated
+            concentrations[concentrations < 0] = 0
+
+            noisy_kin = kin * xp.exp(xp.random.normal(0, log_kinetic_constants_noise, size=kin.shape))
+            noisy_degr = degr * xp.exp(xp.random.normal(0, log_kinetic_constants_noise, size=degr.shape))
+            noisy_prod = prod * xp.exp(xp.random.normal(0, log_kinetic_constants_noise, size=prod.shape))
+
+            production = noisy_kin.T @ concentrations + noisy_prod
+            degradation = (xp.sum(noisy_kin, axis=1) + noisy_degr) * concentrations
+            dCdt = production - degradation
+
+            concentrations = concentrations + dCdt * time_step
+            concentrations[concentrations < 0] = 0
 
             concentration_data.append(concentrations.copy())
 
-        self.simulated_data = np.array(concentration_data)
+        if use_cupy:
+            self.simulated_data = xp.asnumpy(xp.stack(concentration_data))
+        else:
+            self.simulated_data = np.array(concentration_data)
 
-        plt.plot(self.simulated_data[:, track_concentrations])
-        plt.xlabel('Time Steps')
-        plt.ylabel('Concentration')
-        plt.title('Noisy Simulation Trajectories of Tracked Nodes')
-        if len(track_concentrations) < 15:
-            plt.legend([f'Node {node}' for node in track_concentrations])
-        plt.savefig(os.path.join('simulation', 'figures', 'noisy_simulation_trajectories.png'))
-        plt.show()
+        if track_concentrations != []:
+            plt.plot(self.simulated_data[:, track_concentrations])
+            plt.xlabel('Time Steps')
+            plt.ylabel('Concentration')
+            plt.title('Noisy Simulation Trajectories of Tracked Nodes')
+            if len(track_concentrations) < 15:
+                plt.legend([f'Node {node}' for node in track_concentrations])
+            plt.savefig(os.path.join('simulation', 'figures', 'noisy_simulation_trajectories.png'))
+            plt.show()
 
         return self.simulated_data
 
@@ -272,6 +302,14 @@ if __name__ == "__main__":
         adj_matrix_pd.loc[reagent, product] += 1
 
     adj_matrix = np.array(adj_matrix_pd)
+    adj_matrix_pd.to_csv('simulation/adjacency_matrix.csv')
+
+    correlation_matrix_partial = pd.read_csv('simulation/correlation_matrix.csv', index_col=0)
+    correlation_matrix = pd.DataFrame(np.eye(len(all_lipids)), index=all_lipids, columns=all_lipids)
+    for lipid in correlation_matrix_partial.index:
+        for lipid2 in correlation_matrix_partial.columns:
+            correlation_matrix.loc[lipid, lipid2] = correlation_matrix_partial.loc[lipid, lipid2]
+    L = np.linalg.cholesky(correlation_matrix)
 
     simulator = Simulator(random_seed=12)
     graph = simulator.build_graph(adjacency_matrix=adj_matrix)
@@ -280,6 +318,12 @@ if __name__ == "__main__":
 
     nodes_to_track = [i for i in range(len(all_lipids))]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
-    simulated_data = simulator.run_noisy_simulation(steps=2000, track_concentrations=nodes_to_track)
+    simulated_data = simulator.run_noisy_simulation(steps=2000, track_concentrations=nodes_to_track, L=L)
 
-    mean_concentrations, std_concentrations = simulator.analyze_results()
+    #mean_concentrations, std_concentrations = simulator.analyze_results()
+
+    correlation_matrix_simulated = np.corrcoef(simulated_data.T)
+    correlation_df = pd.DataFrame(correlation_matrix_simulated, index=all_lipids, columns=all_lipids)
+    sns.clustermap(correlation_df, cmap='coolwarm', cbar=True, vmin=-1, vmax=1, annot=False)
+    plt.tight_layout()
+    plt.show()
