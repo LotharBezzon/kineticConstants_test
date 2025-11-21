@@ -194,7 +194,6 @@ class Simulator:
             import cupy as cp
             use_cupy = True
         except Exception:
-            import numpy as np
             cp = None
 
         xp = cp if use_cupy else np

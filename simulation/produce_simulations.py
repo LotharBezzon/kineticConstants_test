@@ -25,6 +25,18 @@ def produce_simulations(n_ks, n_timesteps, random_seed=42, adj_matrix=None, L=No
     output = []
 
     for i in range(n_ks):
+        if (i+1) % 100 == 0:
+            print(f'Simulating kinetic constants set {i+1}/{n_ks}')
+        if (i+1) % 1000 == 0 or (i+1) == n_ks:
+
+            output_df = pd.DataFrame(output)
+            sim_counter = 0
+            while os.path.exists(f'simulation/simulation_files/simulated_data_{sim_counter}.parquet'):
+                sim_counter += 1
+            else:
+                output_df.to_parquet(f'simulation/simulation_files/simulated_data_{sim_counter}.parquet', index=False)
+                print(f'Saved simulation data to simulation/simulation_files/simulated_data_{sim_counter}.parquet')
+            output = []
         simulator = Simulator(random_seed=random_seeds[i])
         simulator.build_graph(adjacency_matrix=adj_matrix)
         simulator.sample_kinetic_constants(random_seed=random_seeds[i])
@@ -41,14 +53,7 @@ def produce_simulations(n_ks, n_timesteps, random_seed=42, adj_matrix=None, L=No
             output.append(row)
         #output.append({'simulation_index': np.full(n_timesteps, i, dtype=int), 'timestep': np.arange(n_timesteps), **{col: simulator.simulated_data[:, idx] for idx, col in enumerate(columns)}})
 
-    output_df = pd.DataFrame(output)
-
-    sim_counter = 0
-    while os.path.exists(f'simulation/simulation_files/simulated_data_{sim_counter}.parquet'):
-        sim_counter += 1
-    else:
-        output_df.to_parquet(f'simulation/simulation_files/simulated_data_{sim_counter}.parquet', index=False)
-        print(f'Saved simulation data to simulation/simulation_files/simulated_data_{sim_counter}.parquet')
+    
 
 if __name__ == "__main__":
     adj_matrix_pd = pd.read_csv('simulation/adjacency_matrix.csv', index_col=0)
@@ -61,4 +66,4 @@ if __name__ == "__main__":
             correlation_matrix.loc[lipid, lipid2] = correlation_matrix_partial.loc[lipid, lipid2]
     L = np.linalg.cholesky(correlation_matrix)
 
-    produce_simulations(100, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids)
+    produce_simulations(10000, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids, random_seed=12345)
