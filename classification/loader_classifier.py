@@ -3,10 +3,14 @@ import torch
 import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
+from tqdm import tqdm
 
-def create_multi_graph_dataloader(adj_path, parquet_path, label_column=None):
+# ...existing code...
+def create_multi_graph_dataloader(adj_path, parquet_path, label_column=None,
+                                  batch_size=32, shuffle=True, num_workers=0,
+                                  pin_memory=False, progress=False):
     """
-    Creates a DataLoader where each row in the parquet file is treated as a separate graph 
+    Creates a DataLoader where each row in the parquet file is treated as a separate graph
     with the same fixed topology but different node features.
 
     Args:
@@ -14,88 +18,98 @@ def create_multi_graph_dataloader(adj_path, parquet_path, label_column=None):
         parquet_path (str): Path to the parquet file (rows=samples, cols=nodes).
         label_column (str, optional): Name of the column in parquet to be used as graph label (y).
         batch_size (int): Number of graphs per batch.
+        shuffle (bool): Whether to shuffle the DataLoader.
+        num_workers (int): num_workers passed to DataLoader.
+        pin_memory (bool): pin_memory passed to DataLoader.
+        progress (bool): Show progress bar while building Data objects.
 
     Returns:
         DataLoader: Iterable over batches of graphs.
     """
-    
     # --- 1. Load Data ---
     print(f"Loading topology from {adj_path}...")
     adj_df = pd.read_csv(adj_path, index_col=0)
-    
+
     print(f"Loading samples from {parquet_path}...")
     try:
-        samples_df = pd.read_parquet(parquet_path)
+        samples_df = None
+        for file in parquet_path:
+            samples_df = pd.read_parquet(file) if samples_df is None else pd.concat([samples_df, pd.read_parquet(file)], ignore_index=True)
     except ImportError:
         raise ImportError("Install 'pyarrow' or 'fastparquet' to read the parquet file.")
 
     # --- 2. Align Columns (Nodes) ---
-    # The columns of the parquet file should match the nodes in the adjacency matrix
     adj_nodes = set(adj_df.index)
     sample_columns = set(samples_df.columns)
-    
-    # Find intersection (lipid species present in both)
     common_nodes = sorted(list(adj_nodes.intersection(sample_columns)))
-    
+
     if not common_nodes:
         raise ValueError("No overlap found between Adjacency nodes and Parquet columns.")
-    
+
     print(f"Aligned {len(common_nodes)} nodes across {len(samples_df)} graph samples.")
-    
-    # Subset and sort to ensure index 0 in adj matches column 0 in features
+
     adj_aligned = adj_df.loc[common_nodes, common_nodes]
     node_features_df = samples_df[common_nodes]  # Only keep node columns for features
-    
+
+    # Convert features to a single contiguous numpy array (N_samples, N_nodes)
+    features_np = node_features_df.to_numpy(dtype=np.float32)
+    num_samples, num_nodes = features_np.shape
+
     # --- 3. Prepare Fixed Topology (Edge Index) ---
-    # Since topology is shared, we compute edge_index only once
     adj_values = adj_aligned.values
-    src_rows, dst_cols = np.where(adj_values != 0)
-    # Convert the pair of numpy arrays into a single numpy array first
-    edge_index_np = np.vstack((src_rows, dst_cols))
+    src_rows, dst_cols = np.nonzero(adj_values)  # faster than where != 0
+    edge_index_np = np.vstack((src_rows, dst_cols)).astype(np.int64)
     edge_index = torch.from_numpy(edge_index_np).long()
-    
-    # --- 4. Generate Graph Objects ---
+
+    # --- 4. Prepare tensor views for node features (reuse memory) ---
+    # Create a single torch tensor with shape (N_samples, N_nodes, 1)
+    xs_all = torch.from_numpy(features_np).to(dtype=torch.float32).unsqueeze(2)
+
+    # Prepare labels if requested
+    labels_np = None
+    if label_column and label_column in samples_df.columns:
+        labels_np = samples_df[label_column].to_numpy()
+
+    # --- 5. Generate Graph Objects (fast loop using prebuilt tensors) ---
     data_list = []
-    
-    # Iterate over each row (sample) in the parquet file
-    for idx, row in samples_df.iterrows():
-        if idx % 100000 == 0:
-            print(f"Processing graph sample {idx+1}/{len(samples_df)}...")
-        # A. Extract Node Features for this sample
-        # Shape: [Num_Nodes, Num_Features] -> Here [113, 1] since we have 1 value per node
-        features = row[common_nodes].values.astype(float)
-        x = torch.tensor(features, dtype=torch.float).unsqueeze(1) 
-        
-        # B. Extract Label (if applicable)
+    iterator = range(num_samples)
+    if progress:
+        iterator = tqdm(iterator, desc="Building graphs", unit="graphs")
+
+    for i in iterator:
+        # x is a view into xs_all: shape (num_nodes, 1)
+        x = xs_all[i]
         y = None
-        if label_column and label_column in row:
-            # Assuming a single scalar label for graph classification/regression
-            y = torch.tensor([row[label_column]], dtype=torch.float) # or torch.long for class
-        
-        # C. Create Data Object
-        # Note: edge_index is reused for every sample (efficient referencing)
+        if labels_np is not None:
+            # Use float for regression; cast to long if classification is desired
+            y = torch.tensor([labels_np[i]], dtype=torch.float32)
         data = Data(x=x, edge_index=edge_index, y=y)
         data_list.append(data)
 
-    # --- 5. Create DataLoader ---
-    #loader = DataLoader(data_list, batch_size=batch_size, shuffle=True)
-    
-    return data_list
+    # --- 6. Create DataLoader --- 
+    loader = DataLoader(data_list, batch_size=batch_size, shuffle=shuffle,
+                        num_workers=num_workers, pin_memory=pin_memory)
 
-# --- Example Usage ---
+    return loader
+
+# ...existing code...
 if __name__ == "__main__":
     ADJ_FILE = 'classification/adjacency_matrix.csv'
-    PARQUET_FILE = 'simulation/simulation_files/simulated_data_3.parquet'
+    PARQUET_FILES = [f'simulation/simulation_files/simulated_data_{i}.parquet' for i in range(1)]
 
-    loader = create_multi_graph_dataloader(ADJ_FILE, PARQUET_FILE, batch_size=32, label_column='simulation_index')
-    
-    print(f"\nCreated DataLoader with {len(loader)} batches.")
-    
+    loader = create_multi_graph_dataloader(ADJ_FILE, PARQUET_FILES,
+                                           label_column='simulation_index',
+                                           batch_size=32, shuffle=True,
+                                           num_workers=0, pin_memory=False,
+                                           progress=True)
+
     # Check the first batch
     for batch in loader:
         print("\nBatch Structure:")
         print(batch)
-        print(f" - Batch x shape: {batch.x.shape} (Nodes x Features)")
+        print(f" - Batch x shape: {batch.x.shape} (Total nodes x Features)")
         print(f" - Batch edge_index shape: {batch.edge_index.shape}")
         print(f" - Graphs in batch: {batch.num_graphs}")
+        print(f" - Batch y shape: {batch.y.shape}" if batch.y is not None else " - No labels in this batch.")
+        print(batch[0])
         break
