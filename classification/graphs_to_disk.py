@@ -80,31 +80,37 @@ def write_graphs_to_lmdb(adj_path, graph_files, lmdb_path, map_size=1e9, progres
         data_list (list of Data): List of graph Data objects to store.
         lmdb_path (str): Path to the LMDB database file.
     """
-    # Create LMDB environment
     env = lmdb.open(lmdb_path, map_size=map_size, subdir=False, sync=False, metasync=False, writemap=True)
+    total_graphs = 0
+    batch_size = 1000
 
+    for file in graph_files:
+        data_list = create_graphs_list(
+            adj_path=adj_path,
+            parquet_path=[file],
+            progress=progress,
+            label_column='simulation_index'
+        )
+
+        # Pre-serialize to avoid doing pickle.dumps() inside transactions
+        serialized = [pickle.dumps(d, protocol=pickle.HIGHEST_PROTOCOL) for d in data_list[::10]]
+
+        for start in range(0, len(serialized), batch_size):
+            end = start + batch_size
+            chunk = serialized[start:end]
+            with env.begin(write=True) as txn:
+                for i, val in enumerate(chunk):
+                    key_idx = total_graphs + start + i
+                    key = f'graph_{key_idx:08d}'.encode('ascii')
+                    txn.put(key, val)
+
+        total_graphs += len(data_list[::10])
+
+    # store total length
     with env.begin(write=True) as txn:
-        total_graphs = 0
-        for file in graph_files:
-            data_list = create_graphs_list(
-                adj_path=adj_path,
-                parquet_path=[file],
-                progress=progress,
-                label_column='simulation_index'
-            )
-            print(data_list[0].y)
+        txn.put(b'length', str(total_graphs).encode('ascii'))
 
-            for idx, data in enumerate(tqdm(data_list, desc=f"Writing graphs from {os.path.basename(file)}", unit="graphs", disable=not progress)):
-                key = f'graph_{total_graphs + idx:08d}'.encode('ascii')
-                value = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
-                txn.put(key, value)
-
-            txn.commit()
-            total_graphs += len(data_list)
-            txn = env.begin(write=True)  # Start a new transaction for the next file
-
-        txn.put('length'.encode('ascii'), str(total_graphs).encode('ascii'))
-
+    env.sync()
     env.close()
 
 
@@ -112,6 +118,6 @@ if __name__ == "__main__":
     ADJ_FILE = 'classification/adjacency_matrix.csv'
     PARQUET_FILES = [f'simulation/simulation_files/simulated_data_{i}.parquet' for i in range(10)]
     LMDB_PATH = 'classification/graphs_database.lmdb'
-    map_size = 1 * 1024**3  # 1 GB
+    map_size = 100 * 1024**3  # 100 GB
 
     write_graphs_to_lmdb(ADJ_FILE, PARQUET_FILES, LMDB_PATH, map_size=map_size, progress=True)

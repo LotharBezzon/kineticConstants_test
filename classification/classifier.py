@@ -2,9 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, global_mean_pool
-from torch_geometric.data import Data, DataLoader
+from torch_geometric.data import Data, DataLoader, Dataset
 from torch_geometric.utils import dropout_edge
-from loader_classifier import create_multi_graph_dataloader
+import lmdb
+import pickle
+from tqdm import tqdm
 
 # --- 1. The Loss Function (Vectorized for any n_views) ---
 class SupConLoss(nn.Module):
@@ -105,6 +107,69 @@ def augment_graph(data, p=0.2):
     edge_index, _ = dropout_edge(data.edge_index, p=p, force_undirected=True)
     return edge_index
 
+class LMDBDataset(Dataset):
+    def __init__(self, db_path, transform=None):
+        super().__init__(None, transform)
+        self.db_path = db_path
+        self.env = None
+        self.txn = None
+        self._length = None
+
+    # --- CRITICAL OVERRIDES ---
+    def _download(self):
+        pass  # Do nothing. Prevents file checks.
+
+    def _process(self):
+        pass  # Do nothing. Prevents deletion/re-processing.
+    # --------------------------
+        
+    def _init_db(self):
+        # We open the DB lazily (only when needed) to avoid pickling issues with multiprocessing
+        self.env = lmdb.open(self.db_path, subdir=False, readonly=True, lock=False, readahead=False, meminit=False)
+        self.txn = self.env.begin()
+
+    def __getstate__(self):
+        """
+        Remove non-picklable LMDB handles before multiprocessing pickling.
+        """
+        state = self.__dict__.copy()
+        # env and txn hold native resources and cannot be pickled
+        state['env'] = None
+        state['txn'] = None
+        return state
+
+    def __setstate__(self, state):
+        """
+        Restore state after unpickling. DB will be re-opened lazily on first access.
+        """
+        self.__dict__.update(state)
+        self.env = None
+        self.txn = None
+
+    def len(self):
+        if self._length is None:
+            if self.env is None:
+                self._init_db()
+            # Read the special 'length' key we saved earlier
+            length_bytes = self.txn.get('length'.encode('ascii'))
+            self._length = int(length_bytes.decode('ascii'))
+        return self._length
+
+    def get(self, idx):
+        if self.env is None:
+            self._init_db()
+            
+        # 1. Read bytes from LMDB
+        key = f"graph_{idx:08d}".encode('ascii')
+        data_bytes = self.txn.get(key)
+        
+        if data_bytes is None:
+            raise IndexError(f"Index {idx} not found in LMDB.")
+
+        # 2. Deserialize (Unpickle)
+        data = pickle.loads(data_bytes)
+        return data
+
 # --- 4. Training Loop ---
 
 if __name__ == "__main__":
@@ -115,19 +180,11 @@ if __name__ == "__main__":
     HIDDEN_DIM = 64
     BATCH_SIZE = 32 # Larger batch size is better for SupCon
     
-    # Create Dummy Data
-    # Ensure we have multiple graphs with the same label for USE_AUGMENTATIONS=False to work
-    dataset = []
-    for i in range(1):
-        dataset += create_multi_graph_dataloader(
-            adj_path='classification/adjacency_matrix.csv',
-            parquet_path=f'simulation/simulation_files/simulated_data_{i}.parquet',
-            batch_size=16,
-            label_column='simulation_index'
-        )
-        
-
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+    dataset = LMDBDataset(db_path='classification/graphs_database.lmdb')
+    print(f"Dataset loaded with {len(dataset)} graphs.")
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
+    print(f"DataLoader created with batch size {BATCH_SIZE}.")
+    
     
     model = GraphEncoder(num_node_features=NUM_NODE_FEATURES, hidden_dim=HIDDEN_DIM)
     criterion = SupConLoss()
@@ -138,7 +195,7 @@ if __name__ == "__main__":
     model.train()
     for epoch in range(10):
         total_loss = 0
-        for batch in loader:
+        for batch in tqdm(loader, desc=f"Epoch {epoch+1}"):
             
             if USE_AUGMENTATIONS:
                 # Approach A: Two Views (Augmentations)
@@ -171,5 +228,10 @@ if __name__ == "__main__":
             total_loss += loss.item()
             
         print(f"Epoch {epoch+1}: Loss = {total_loss / len(loader):.4f}")
+
+        # Save checkpoint every epoch
+        torch.save(model.state_dict(), f'classification/graph_encoder_epoch_{epoch+1}.pth')
+        # Save optimizer state
+        torch.save(optimizer.state_dict(), f'classification/optimizer_epoch_{epoch+1}.pth')
 
     print("\nTraining Complete.")
