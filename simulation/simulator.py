@@ -122,6 +122,20 @@ class Simulator:
         self.concentrations = concentrations
         return self.concentrations
     
+    def set_simulation_parameters(self, **kwargs):
+        """Set simulation parameters such as kinetic constants, production constants, degradation constants,
+        noise correlation matrix, concentration noise, kinetic constants noise and dropout.
+        Args:
+            **kwargs: Keyword arguments for simulation parameters."""
+        
+        self.kinetic_constants = kwargs.get('kinetic_constants', None)
+        self.production_constants = kwargs.get('production_constants', None)
+        self.degradation_constants = kwargs.get('degradation_constants', None)
+        self.L = np.linalg.cholesky(kwargs.get('correlation_matrix', np.eye(self.kinetic_constants.shape[0])))
+        self.concentration_noise = kwargs.get('concentration_noise', 0.05)
+        self.log_kinetic_constants_noise = kwargs.get('log_kinetic_constants_noise', 0.01)
+        self.dropout = kwargs.get('dropout', 0.0)
+    
     def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[]):
         """Run a temporal simulation until steady state is reached.
         Args:
@@ -178,7 +192,7 @@ class Simulator:
             plt.show()
         return self.concentrations
     
-    def run_noisy_simulation(self, L=None, concentration_noise=0.05, log_kinetic_constants_noise=0.01, steps=1000, time_step=None, track_concentrations=[]):
+    def run_noisy_simulation(self, steps=1000, time_step=None, track_concentrations=[]):
         """Starting from euilibrium concentrations, run a noisy simulation to collect data. 
         Noise on concentrations in gaussian (to replicate pixel heterogeneity), while noise on kinetic constants is lognormal.
         Args:
@@ -205,28 +219,25 @@ class Simulator:
             k_max = np.max(self.kinetic_constants)
             time_step = 1 / (10 * k_max)
 
-        if L is None:
-            L = xp.eye(self.kinetic_constants.shape[0])
-
         # Move arrays to chosen backend
         concentrations = xp.array(self.concentrations, copy=True)
         kin = xp.array(self.kinetic_constants)
         degr = xp.array(self.degradation_constants)
         prod = xp.array(self.production_constants)
-        L = xp.array(L)
+        L = xp.array(self.L)
 
         concentration_data = []
 
         for step in range(steps):
             # correlated gaussian noise: draw vector z ~ N(0,1), then L @ z
-            z = xp.random.normal(0, concentration_noise, size=concentrations.shape)
+            z = xp.random.normal(0, self.concentration_noise, size=concentrations.shape)
             correlated = z @ L.T
             concentrations = concentrations + concentrations * correlated
             concentrations[concentrations < 0] = 0
 
-            noisy_kin = kin * xp.exp(xp.random.normal(0, log_kinetic_constants_noise, size=kin.shape))
-            noisy_degr = degr * xp.exp(xp.random.normal(0, log_kinetic_constants_noise, size=degr.shape))
-            noisy_prod = prod * xp.exp(xp.random.normal(0, log_kinetic_constants_noise, size=prod.shape))
+            noisy_kin = kin * xp.exp(xp.random.normal(0, self.log_kinetic_constants_noise, size=kin.shape))
+            noisy_degr = degr * xp.exp(xp.random.normal(0, self.log_kinetic_constants_noise, size=degr.shape))
+            noisy_prod = prod * xp.exp(xp.random.normal(0, self.log_kinetic_constants_noise, size=prod.shape))
 
             production = noisy_kin.T @ concentrations + noisy_prod
             degradation = (xp.sum(noisy_kin, axis=1) + noisy_degr) * concentrations
@@ -235,7 +246,13 @@ class Simulator:
             concentrations = concentrations + dCdt * time_step
             concentrations[concentrations < 0] = 0
 
-            concentration_data.append(concentrations.copy())
+            if self.dropout > 0.0:
+                drop_mask = xp.random.rand(*concentrations.shape) < self.dropout
+                measured_concentrations = concentrations * (1 - drop_mask)
+            else:
+                measured_concentrations = concentrations
+
+            concentration_data.append(measured_concentrations.copy())
 
         if use_cupy:
             self.simulated_data = xp.asnumpy(xp.stack(concentration_data))

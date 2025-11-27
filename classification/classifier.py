@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, global_mean_pool
-from torch_geometric.data import Data, DataLoader, Dataset
+from torch_geometric.data import Data, Dataset
+from torch_geometric.loader import DataLoader
 from torch_geometric.utils import dropout_edge
 import lmdb
 import pickle

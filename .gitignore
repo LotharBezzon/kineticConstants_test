@@ -1,6 +1,7 @@
 basic_test/data/
 *.parquet
 *.lmdb
+.vscode
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
