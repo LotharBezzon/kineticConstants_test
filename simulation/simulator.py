@@ -257,7 +257,7 @@ class Simulator:
         if use_cupy:
             self.simulated_data = xp.asnumpy(xp.stack(concentration_data))
         else:
-            self.simulated_data = np.array(concentration_data)
+            self.simulated_data = np.array(concentration_data).T  # Shape (num_nodes, steps)
 
         if track_concentrations != []:
             plt.plot(self.simulated_data[:, track_concentrations])
