@@ -3,5 +3,14 @@
   "github.copilot.enable": {
     "*": true
   },
-  "github.copilot.inlineSuggest.enable": true
+  "github.copilot.inlineSuggest.enable": true,
+  "python.testing.unittestArgs": [
+    "-v",
+    "-s",
+    "./basic_test",
+    "-p",
+    "*_test.py"
+  ],
+  "python.testing.pytestEnabled": false,
+  "python.testing.unittestEnabled": true
 }

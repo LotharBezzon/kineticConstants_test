@@ -1,9 +1,13 @@
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
 import torch
-from simulator import Simulator
+from simulation.simulator import Simulator
 import numpy as np
 import pandas as pd
 import os
-from torch_geometric.data import Data
+from torch_geometric.data import Data, OnDiskDataset
+from tqdm import tqdm
 
 def produce_simulations(n_ks, n_timesteps, random_seed=42, adj_matrix=None, L=None, **kwargs):
     """Produce simulations given the number of kinetic constants and timesteps.
@@ -56,7 +60,7 @@ def produce_simulations(n_ks, n_timesteps, random_seed=42, adj_matrix=None, L=No
             output.append(row)
         #output.append({'simulation_index': np.full(n_timesteps, i, dtype=int), 'timestep': np.arange(n_timesteps), **{col: simulator.simulated_data[:, idx] for idx, col in enumerate(columns)}})
 
-def simulations_for_lmdb(n_ks, n_timesteps, random_seed=42, adj_matrix=None, L=None, **kwargs):
+def simulations_for_predictor(n_ks, n_timesteps,  adj_matrix, random_seed=42, L=None, **kwargs):
     """Produce simulations given the number of set of kinetic constants to sample and timesteps.
 
     Args:
@@ -68,28 +72,71 @@ def simulations_for_lmdb(n_ks, n_timesteps, random_seed=42, adj_matrix=None, L=N
     
     np.random.seed(random_seed)
     random_seeds = np.random.randint(0, 10000, size=n_ks)
+    simulator = Simulator()
     if components_names := kwargs.get('components_names'):
         columns = components_names
     else:
-        columns = (np.arange(simulator.kinetic_constants.shape[0])).tolist()
+        columns = (np.arange(adj_matrix.shape[0])).tolist()
         for col in range(len(columns)):
             columns[col] = f'component_{columns[col]}'
 
     data_list = []
-    for i in range(n_ks):
-        if (i+1) % 100 == 0:
-            print(f'Simulating kinetic constants set {i+1}/{n_ks}')
-        simulator = Simulator(random_seed=random_seeds[i])
+    for i in tqdm(range(n_ks)):
         simulator.build_graph(adjacency_matrix=adj_matrix)
         simulator.sample_kinetic_constants(random_seed=random_seeds[i])
         simulator.run_equilibration()
-        simulator.concentration_noise = 0.1 * np.random.random()
-        simulator.log_kinetic_constants_noise = 0.04 * np.random.random()
         simulator.L = L if L is not None else np.eye(simulator.kinetic_constants.shape[0])
         simulator.run_noisy_simulation(steps=n_timesteps)
 
         data = Data()
-        data.x = torch.tensor(simulator.simulated_data, dtype=torch.float32)
+        data.x = torch.tensor(simulator.simulated_data.T, dtype=torch.float32)
+        data.edge_index = torch.tensor(np.vstack(np.nonzero(adj_matrix)), dtype=torch.long)
+        data.parameters = simulator.get_simulation_parameters()
+        data_list.append(data)
+
+    return data_list
+        
+
+class SimulatedGraphDataset(OnDiskDataset):
+    def __init__(self, root, transform=None, pre_filter=None, random_seed=42, adj_matrix=None, L=None, n_ks=10000, chunk_size=1000, n_timesteps=1000):
+        self.random_seed = random_seed
+        self.adj_matrix = adj_matrix
+        self.L = L
+        self.n_ks = n_ks
+        self.n_timesteps = n_timesteps
+        self.chunk_size = chunk_size
+        super().__init__(root, transform, pre_filter)
+
+    @property
+    def raw_file_names(self):
+        return []  # No raw files
+
+    @property
+    def processed_file_names(self):
+        return ['data.pt']
+
+    def download(self):
+        pass  # No download needed
+
+    def process(self):
+        np.random.seed(self.random_seed)
+        n_chunks = (self.n_ks + self.chunk_size - 1) // self.chunk_size
+        random_seeds = np.random.randint(0, 10000, size=n_chunks)
+        for chunk_idx in tqdm(range(n_chunks), desc="Processing chunks\n", unit="chunk"):
+            current_chunk_size = min(self.chunk_size, self.n_ks - chunk_idx * self.chunk_size)
+            data_list = simulations_for_predictor(
+                n_ks=current_chunk_size,
+                n_timesteps=self.n_timesteps,
+                random_seed=random_seeds[chunk_idx],
+                adj_matrix=self.adj_matrix,
+                L=self.L
+            )
+            if self.pre_filter is not None:
+                data_list = [data for data in data_list if self.pre_filter(data)]
+            if self.pre_transform is not None:
+                data_list = [self.pre_transform(data) for data in data_list]
+
+            self.extend(data_list)
         
 
 
@@ -106,4 +153,16 @@ if __name__ == "__main__":
             correlation_matrix.loc[lipid, lipid2] = correlation_matrix_partial.loc[lipid, lipid2]
     L = np.linalg.cholesky(correlation_matrix)
 
-    produce_simulations(10000, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids, random_seed=12345)
+    #produce_simulations(10000, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids, random_seed=12345)
+
+    os.makedirs('simulation/simulated_graph_dataset', exist_ok=True)
+    db_root = 'simulation/simulated_graph_dataset'
+    dataset = SimulatedGraphDataset(
+        root=db_root,
+        random_seed=12345,
+        adj_matrix=adj_matrix,
+        L=L,
+        n_ks=10000,
+        chunk_size=500,
+        n_timesteps=1000
+    )

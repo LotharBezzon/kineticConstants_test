@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 from torch.nn import Sequential, Linear, Dropout, ModuleList, PReLU, KLDivLoss
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, MessagePassing, GATConv, BatchNorm, LayerNorm, GraphNorm
-from simulation.simulator import Simulator
+from torch_geometric.nn import GCNConv, MessagePassing, GATConv, BatchNorm, LayerNorm, GraphNorm, global_mean_pool
+#from simulation.simulator import Simulator
 import numpy as np
 
 class mlp(torch.nn.Module):
@@ -25,14 +25,16 @@ class mlp(torch.nn.Module):
                  normalize=False, 
                  bias=True):
         super().__init__()
-        self.layers = [Linear(in_channels, hidden_dim), PReLU()]
-        for _ in range(hidden_num):
+        if isinstance(hidden_dim, int):
+            hidden_dim = [hidden_dim]*(hidden_num+1)
+        self.layers = [Linear(in_channels, hidden_dim[0]), PReLU()]
+        for i in range(hidden_num):
             self.layers.append(Dropout(0.1))
-            self.layers.append(Linear(hidden_dim, hidden_dim, bias=bias))
+            self.layers.append(Linear(hidden_dim[i], hidden_dim[i+1], bias=bias))
             if normalize:
                 self.layers.append(BatchNorm(in_channels))
             self.layers.append(PReLU())
-        self.layers.append(Linear(hidden_dim, out_channel))
+        self.layers.append(Linear(hidden_dim[-1], out_channel))
         self.mlp = Sequential(*self.layers)
         self._init_parameters()
 
@@ -44,6 +46,21 @@ class mlp(torch.nn.Module):
     def forward(self, x):
         """Apply the MLP to the input tensor"""
         return self.mlp(x)
+    
+class LearnablePositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super().__init__()
+        # Use nn.Embedding for learnable position vectors
+        self.position_embedding = nn.Embedding(max_len, d_model)
+
+    def forward(self, x):
+        batch_size, seq_len, _ = x.shape
+        
+        # Create position indices: [0, 1, 2, ..., seq_len-1]
+        positions = torch.arange(seq_len, device=x.device).unsqueeze(0)
+        
+        # Lookup embeddings and add to input
+        return x + self.position_embedding(positions)
 
 # --- 1. The GNN Part of the Model ---
 
@@ -53,15 +70,22 @@ class SimpleGNN(nn.Module):
     """
     def __init__(self, in_channels, hidden_channels, node_out_channels, edge_out_channels, num_layers=2):
         super(SimpleGNN, self).__init__()
+        #self.pos_encoder = LearnablePositionalEncoding(d_model=in_channels, max_len=1000)
         self.embed = mlp(in_channels, hidden_channels, hidden_dim=2*hidden_channels)
+        self.graph_encoder = mlp(hidden_channels, hidden_channels, hidden_dim=2*hidden_channels)
         self.convs = nn.ModuleList()
         for _ in range(num_layers):
-            self.convs.append(GCNConv(hidden_channels, hidden_channels))
+            self.convs.append(GATConv(hidden_channels, hidden_channels))
         self.node_predictor = mlp(hidden_channels, node_out_channels)
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, batch=None):
+        #x = self.pos_encoder(x.unsqueeze(1)).squeeze(1)
         x = self.embed(x)
+        g = global_mean_pool(x, batch)
+        #print(g.shape, x.shape, batch.shape)
+        x = x + self.graph_encoder(g)[batch]
+        #print(x.shape)
         for conv in self.convs:
             x = F.relu(conv(x, edge_index))
         node_preds = self.node_predictor(x)
@@ -81,13 +105,13 @@ def run_simulation(simulator, adj_matrix, noisy_steps=1000, **kwargs):
         adj_matrix (torch.Tensor): The adjacency matrix representing the graph structure.
         **kwargs: Additional keyword arguments for the simulator.
     """
-    simulator.build_graph(adj_matrix)
+    simulator.build_graph(adjacency_matrix=adj_matrix)
     simulator.set_simulation_parameters(**kwargs)
 
     simulator.run_equilibration()
     simulated_concentrations = simulator.run_noisy_simulation(steps=noisy_steps)
 
-    return simulated_concentrations
+    return simulated_concentrations.T   # shape: (num_nodes, noisy_steps)
 
 # --- 3. The Loss Function ---
 

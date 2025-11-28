@@ -88,6 +88,9 @@ class Simulator:
         self.kinetic_constants *= np.array(self.adjacency_matrix)  # Zero out non-edges
         self.degradation_constants = np.exp(log_degradation)
         self.production_constants = np.exp(log_production)
+        self.dropout = np.random.random() * 0.1
+        self.concentration_noise = 0.1 * np.random.random()
+        self.log_kinetic_constants_noise = 0.04 * np.random.random()
         
         return self.kinetic_constants, self.degradation_constants, self.production_constants
     
@@ -128,13 +131,28 @@ class Simulator:
         Args:
             **kwargs: Keyword arguments for simulation parameters."""
         
-        self.kinetic_constants = kwargs.get('kinetic_constants', None)
-        self.production_constants = kwargs.get('production_constants', None)
-        self.degradation_constants = kwargs.get('degradation_constants', None)
+        self.kinetic_constants = np.exp(kwargs.get('log_kinetic_constants', None))
+        self.production_constants = np.exp(kwargs.get('log_production_constants', None))
+        self.degradation_constants = np.exp(kwargs.get('log_degradation_constants', None))
         self.L = np.linalg.cholesky(kwargs.get('correlation_matrix', np.eye(self.kinetic_constants.shape[0])))
         self.concentration_noise = kwargs.get('concentration_noise', 0.05)
         self.log_kinetic_constants_noise = kwargs.get('log_kinetic_constants_noise', 0.01)
         self.dropout = kwargs.get('dropout', 0.0)
+
+    def get_simulation_parameters(self):
+        """Get current simulation parameters.
+        Returns:
+            dict: Dictionary of current simulation parameters."""
+        
+        return {
+            'kinetic_constants': self.kinetic_constants,
+            'production_constants': self.production_constants,
+            'degradation_constants': self.degradation_constants,
+            'L': self.L,
+            'concentration_noise': self.concentration_noise,
+            'log_kinetic_constants_noise': self.log_kinetic_constants_noise,
+            'dropout': self.dropout
+        }
     
     def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[]):
         """Run a temporal simulation until steady state is reached.
@@ -170,11 +188,20 @@ class Simulator:
             new_concentrations = concentrations + dCdt * time_step
             new_concentrations[new_concentrations < 0] = 0
 
+            #if any value in new_concentrations is nan or inf, print concentrations, production, degradation, dCdt
+            if np.any(np.isnan(new_concentrations)) or np.any(np.isinf(new_concentrations)):
+                print("NaN or Inf detected in concentrations.")
+                print("Concentrations:", concentrations)
+                print("Production:", production)
+                print("Degradation:", degradation)
+                print("dCdt:", dCdt)
+                raise ValueError("NaN or Inf detected in concentrations during equilibration.")
+
             for i, node in enumerate(track_concentrations):
                 tracked_concentrations[i].append(new_concentrations[node])
 
             #print(f"Iteration {iteration}: Max Relative Change = {np.max(np.abs(new_concentrations - concentrations) / concentrations):.6f}, Index of Max Change = {np.argmax(np.abs(new_concentrations - concentrations) / concentrations)}")
-            if np.max(np.abs(new_concentrations - concentrations) / concentrations) < convergence_threshold:
+            if np.max(np.abs(new_concentrations - concentrations) / (concentrations + 1e-8)) < convergence_threshold:
                 break
             concentrations = new_concentrations
 
@@ -257,7 +284,7 @@ class Simulator:
         if use_cupy:
             self.simulated_data = xp.asnumpy(xp.stack(concentration_data))
         else:
-            self.simulated_data = np.array(concentration_data).T  # Shape (num_nodes, steps)
+            self.simulated_data = np.array(concentration_data)  #shape (steps, num_nodes)
 
         if track_concentrations != []:
             plt.plot(self.simulated_data[:, track_concentrations])
