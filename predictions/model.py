@@ -27,8 +27,9 @@ class mlp(torch.nn.Module):
         super().__init__()
         if isinstance(hidden_dim, int):
             hidden_dim = [hidden_dim]*(hidden_num+1)
+        print(f"MLP hidden dimensions set to: {hidden_dim}")
         self.layers = [Linear(in_channels, hidden_dim[0]), PReLU()]
-        for i in range(hidden_num):
+        for i in range(hidden_num-1):
             self.layers.append(Dropout(0.1))
             self.layers.append(Linear(hidden_dim[i], hidden_dim[i+1], bias=bias))
             if normalize:
@@ -75,7 +76,7 @@ class SimpleGNN(nn.Module):
         self.graph_encoder = mlp(hidden_channels, hidden_channels, hidden_dim=2*hidden_channels)
         self.convs = nn.ModuleList()
         for _ in range(num_layers):
-            self.convs.append(GATConv(hidden_channels, hidden_channels))
+            self.convs.append(GCNConv(hidden_channels, hidden_channels))
         self.node_predictor = mlp(hidden_channels, node_out_channels)
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 

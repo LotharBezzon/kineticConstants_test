@@ -70,7 +70,7 @@ class Simulator:
         plt.savefig(os.path.join('simulation', 'figures', 'graph_nearest_neighbors.png'))
         plt.show()
 
-    def sample_kinetic_constants(self, mean=0, sigma=1.0, degr_sigma=1.0, prod_sigma=1.0, random_seed=42):
+    def sample_kinetic_constants(self, mean=0, sigma=1.0, degr_sigma=1.0, prod_sigma=1.0, random_seed=42, rank=None, L=None):
         """Samples the logarithm of kinetic constants for each edge in the graph.
         Args:
             mean (float): Mean of the normal distribution.
@@ -80,14 +80,25 @@ class Simulator:
             raise ValueError("Adjacency matrix not found. Please build the graph first.")
         
         np.random.seed(random_seed)
-        
-        log_kinetic_constants = np.random.normal(mean, sigma, size=self.adjacency_matrix.shape)
-        log_degradation = np.random.normal(mean, degr_sigma, size=self.adjacency_matrix.shape[0])
-        log_production = np.random.normal(mean, prod_sigma, size=self.adjacency_matrix.shape[0])
-        self.kinetic_constants = np.exp(log_kinetic_constants)
-        self.kinetic_constants *= np.array(self.adjacency_matrix)  # Zero out non-edges
-        self.degradation_constants = np.exp(log_degradation)
-        self.production_constants = np.exp(log_production)
+
+        num_ks = np.sum(self.adjacency_matrix) + self.adjacency_matrix.shape[0] * 2  # edges + degradation + production
+
+        if rank is None:
+            rank = num_ks
+
+        if L is None:
+            L = np.random.randn(num_ks, rank)
+        cov_matrix = (L @ L.T + np.eye(num_ks)) * sigma**2 + np.random.randn(num_ks, num_ks) * 1e-3
+        mu = np.full(num_ks, mean)
+
+        log_k = np.random.multivariate_normal(mu, cov_matrix)
+
+        kinetic_constants = self.adjacency_matrix.copy()
+        kinetic_constants[self.adjacency_matrix > 0] = np.exp(log_k[:np.sum(self.adjacency_matrix)])
+        self.sparse_kinetic_constants = np.exp(log_k[:np.sum(self.adjacency_matrix)])
+        self.kinetic_constants = kinetic_constants
+        self.degradation_constants = np.exp(log_k[np.sum(self.adjacency_matrix):np.sum(self.adjacency_matrix)+self.adjacency_matrix.shape[0]])
+        self.production_constants = np.exp(log_k[np.sum(self.adjacency_matrix)+self.adjacency_matrix.shape[0]:])
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.1 * np.random.random()
         self.log_kinetic_constants_noise = 0.04 * np.random.random()
@@ -145,6 +156,7 @@ class Simulator:
             dict: Dictionary of current simulation parameters."""
         
         return {
+            'sparse_kinetic_constants': self.sparse_kinetic_constants,
             'kinetic_constants': self.kinetic_constants,
             'production_constants': self.production_constants,
             'degradation_constants': self.degradation_constants,
