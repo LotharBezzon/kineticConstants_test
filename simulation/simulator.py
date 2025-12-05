@@ -5,6 +5,7 @@ from matplotlib.colors import ListedColormap
 import pandas as pd
 import os
 import seaborn as sns
+from sklearn.decomposition import PCA
 
 class Simulator:
     """A simulator to produce data to train a kinetic constants estimator.
@@ -70,7 +71,7 @@ class Simulator:
         plt.savefig(os.path.join('simulation', 'figures', 'graph_nearest_neighbors.png'))
         plt.show()
 
-    def sample_kinetic_constants(self, mean=0, sigma=1.0, degr_sigma=1.0, prod_sigma=1.0, random_seed=42, rank=None, L=None):
+    def sample_kinetic_constants(self, mean=0, sigma=1.0, degr_sigma=1.0, prod_sigma=1.0, random_seed=42, rank=None, L=None, n_samples=1):
         """Samples the logarithm of kinetic constants for each edge in the graph.
         Args:
             mean (float): Mean of the normal distribution.
@@ -91,19 +92,70 @@ class Simulator:
         cov_matrix = (L @ L.T + np.eye(num_ks)) * sigma**2 + np.random.randn(num_ks, num_ks) * 1e-3
         mu = np.full(num_ks, mean)
 
-        log_k = np.random.multivariate_normal(mu, cov_matrix)
+        log_k = np.random.multivariate_normal(mu, cov_matrix, size=n_samples)
 
-        kinetic_constants = self.adjacency_matrix.copy()
-        kinetic_constants[self.adjacency_matrix > 0] = np.exp(log_k[:np.sum(self.adjacency_matrix)])
-        self.sparse_kinetic_constants = np.exp(log_k[:np.sum(self.adjacency_matrix)])
+        kinetic_constants = np.zeros((n_samples, self.adjacency_matrix.shape[0], self.adjacency_matrix.shape[1]))
+        kinetic_constants[:, self.adjacency_matrix > 0] = np.exp(log_k[:, :np.sum(self.adjacency_matrix)])
+        self.sparse_kinetic_constants = np.exp(log_k[:, :np.sum(self.adjacency_matrix)])
         self.kinetic_constants = kinetic_constants
-        self.degradation_constants = np.exp(log_k[np.sum(self.adjacency_matrix):np.sum(self.adjacency_matrix)+self.adjacency_matrix.shape[0]])
-        self.production_constants = np.exp(log_k[np.sum(self.adjacency_matrix)+self.adjacency_matrix.shape[0]:])
+        self.degradation_constants = np.exp(log_k[:, np.sum(self.adjacency_matrix):np.sum(self.adjacency_matrix)+self.adjacency_matrix.shape[0]])
+        self.production_constants = np.exp(log_k[:, np.sum(self.adjacency_matrix)+self.adjacency_matrix.shape[0]:])
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.1 * np.random.random()
         self.log_kinetic_constants_noise = 0.04 * np.random.random()
         
         return self.kinetic_constants, self.degradation_constants, self.production_constants
+    
+    def sample_free_energies(self, mean=0, sigma=1.0, mean_barrier=1.0, random_seed=42, c_rank=None, reax_rank=None, c_L=None, reax_L=None, n_samples=1):
+        """Samples the free energies for each node in the graph.
+        Args:
+            mean (float): Mean of the normal distribution.
+            sigma (float): Standard deviation of the normal distribution."""
+        
+        if not hasattr(self, 'adjacency_matrix'):
+            raise ValueError("Adjacency matrix not found. Please build the graph first.")
+        
+        np.random.seed(random_seed)
+
+        num_nodes = self.adjacency_matrix.shape[0]
+
+        symm_adjacency = self.adjacency_matrix + self.adjacency_matrix.T
+        symm_adjacency[symm_adjacency > 0] = 1
+        num_reactions = (np.sum(self.adjacency_matrix) / 2).astype(int)
+
+        if c_rank is None:
+            c_rank = num_nodes
+        if reax_rank is None:
+            reax_rank = num_reactions
+
+        if c_L is None:
+            c_L = np.random.randn(num_nodes, c_rank) / np.sqrt(c_rank) * sigma
+        c_cov_matrix = c_L @ c_L.T + np.random.randn(num_nodes, num_nodes) * 1e-2
+        c_mu = np.full(num_nodes, mean)
+
+        if reax_L is None:
+            reax_L = np.random.randn(num_reactions, reax_rank) / np.sqrt(reax_rank) * sigma
+        reax_cov_matrix = reax_L @ reax_L.T + np.random.randn(num_reactions, num_reactions) * 1e-2
+        reax_mu = np.full(num_reactions, mean_barrier)
+
+        self.free_energies = np.random.multivariate_normal(c_mu, c_cov_matrix, size=n_samples)
+
+        reaction_barriers = np.random.multivariate_normal(reax_mu, reax_cov_matrix, size=n_samples)
+        transition_free_energies = np.zeros((n_samples, num_nodes, num_nodes))
+        idx = 0
+        for i in range(num_nodes):
+            for j in range(i+1, num_nodes):
+                if self.adjacency_matrix[i, j] > 0:
+                    transition_free_energies[:, i, j] = np.maximum(self.free_energies[:, i], self.free_energies[:, j]) + reaction_barriers[:, idx] - self.free_energies[:, i]
+                    transition_free_energies[:, j, i] = np.maximum(self.free_energies[:, j], self.free_energies[:, i]) + reaction_barriers[:, idx] - self.free_energies[:, j]
+                    idx += 1
+        self.kinetic_constants = np.exp(-transition_free_energies) * symm_adjacency[np.newaxis, :, :]
+        self.sparse_kinetic_constants = self.kinetic_constants[:, symm_adjacency > 0]
+        self.degradation_constants = np.exp(np.random.normal(mean, sigma, size=(n_samples, num_nodes)))
+        self.production_constants = np.exp(np.random.normal(mean, sigma, size=(n_samples, num_nodes)))
+        self.dropout = np.random.random() * 0.1
+        self.concentration_noise = 0.1 * np.random.random()
+        self.log_kinetic_constants_noise = 0.04 * np.random.random()
     
     def graph_components(self):
         """Identifies connected components in the graph. Needed to avoid singular matrices during simulation."""
@@ -142,13 +194,19 @@ class Simulator:
         Args:
             **kwargs: Keyword arguments for simulation parameters."""
         
-        self.kinetic_constants = np.exp(kwargs.get('log_kinetic_constants', None))
-        self.production_constants = np.exp(kwargs.get('log_production_constants', None))
-        self.degradation_constants = np.exp(kwargs.get('log_degradation_constants', None))
+        if 'log_kinetic_constants' in kwargs:
+            self.kinetic_constants = np.exp(kwargs.get('log_kinetic_constants'))
+        if 'log_production_constants' in kwargs:
+            self.production_constants = np.exp(kwargs.get('log_production_constants'))
+        if 'log_degradation_constants' in kwargs:
+            self.degradation_constants = np.exp(kwargs.get('log_degradation_constants'))
         self.L = np.linalg.cholesky(kwargs.get('correlation_matrix', np.eye(self.kinetic_constants.shape[0])))
-        self.concentration_noise = kwargs.get('concentration_noise', 0.05)
-        self.log_kinetic_constants_noise = kwargs.get('log_kinetic_constants_noise', 0.01)
-        self.dropout = kwargs.get('dropout', 0.0)
+        if 'concentration_noise' in kwargs:
+            self.concentration_noise = kwargs.get('concentration_noise')
+        if 'log_kinetic_constants_noise' in kwargs:
+            self.log_kinetic_constants_noise = kwargs.get('log_kinetic_constants_noise')
+        if 'dropout' in kwargs:
+            self.dropout = kwargs.get('dropout')
 
     def get_simulation_parameters(self):
         """Get current simulation parameters.
@@ -182,18 +240,19 @@ class Simulator:
             k_max = np.max(self.kinetic_constants)
             time_step = 1 / (10 * k_max)
 
-        num_nodes = self.kinetic_constants.shape[0]
+        num_samples = self.kinetic_constants.shape[0]
+        num_nodes = self.kinetic_constants.shape[1]
         if initial_concentrations is None:
-            concentrations = np.ones(num_nodes) 
+            concentrations = np.ones((num_samples, num_nodes))
 
         tracked_concentrations = [[] for node in track_concentrations]
 
-        k_out = np.sum(self.kinetic_constants, axis=1)
+        k_out = np.sum(self.kinetic_constants, axis=2)
         for iteration in range(max_iterations):
             if iteration == max_iterations - 1:
                 raise Exception("Simulation did not converge within the maximum number of iterations.")
             
-            production = self.kinetic_constants.T @ concentrations + self.production_constants
+            production = np.einsum('bji,bj->bi', self.kinetic_constants, concentrations) + self.production_constants
             degradation = (k_out + self.degradation_constants) * concentrations
             dCdt = production - degradation
 
@@ -210,7 +269,7 @@ class Simulator:
                 raise ValueError("NaN or Inf detected in concentrations during equilibration.")
 
             for i, node in enumerate(track_concentrations):
-                tracked_concentrations[i].append(new_concentrations[node])
+                tracked_concentrations[i].append(new_concentrations[0, node])
 
             #print(f"Iteration {iteration}: Max Relative Change = {np.max(np.abs(new_concentrations - concentrations) / concentrations):.6f}, Index of Max Change = {np.argmax(np.abs(new_concentrations - concentrations) / concentrations)}")
             if np.max(np.abs(new_concentrations - concentrations) / (concentrations + 1e-8)) < convergence_threshold:
@@ -270,7 +329,7 @@ class Simulator:
         for step in range(steps):
             # correlated gaussian noise: draw vector z ~ N(0,1), then L @ z
             z = xp.random.normal(0, self.concentration_noise, size=concentrations.shape)
-            correlated = z @ L.T
+            correlated = xp.einsum('ij,bj->bi', L, z)
             concentrations = concentrations + concentrations * correlated
             concentrations[concentrations < 0] = 0
 
@@ -278,8 +337,8 @@ class Simulator:
             noisy_degr = degr * xp.exp(xp.random.normal(0, self.log_kinetic_constants_noise, size=degr.shape))
             noisy_prod = prod * xp.exp(xp.random.normal(0, self.log_kinetic_constants_noise, size=prod.shape))
 
-            production = noisy_kin.T @ concentrations + noisy_prod
-            degradation = (xp.sum(noisy_kin, axis=1) + noisy_degr) * concentrations
+            production = np.einsum('bji,bj->bi', noisy_kin, concentrations) + noisy_prod
+            degradation = (xp.sum(noisy_kin, axis=2) + noisy_degr) * concentrations
             dCdt = production - degradation
 
             concentrations = concentrations + dCdt * time_step
@@ -299,7 +358,7 @@ class Simulator:
             self.simulated_data = np.array(concentration_data)  #shape (steps, num_nodes)
 
         if track_concentrations != []:
-            plt.plot(self.simulated_data[:, track_concentrations])
+            plt.plot(self.simulated_data[:, 0, track_concentrations])
             plt.xlabel('Time Steps')
             plt.ylabel('Concentration')
             plt.title('Noisy Simulation Trajectories of Tracked Nodes')
@@ -369,16 +428,41 @@ if __name__ == "__main__":
     simulator = Simulator(random_seed=12)
     graph = simulator.build_graph(adjacency_matrix=adj_matrix)
     #simulator.graph_info()
-    simulator.sample_kinetic_constants()
+    simulator.sample_free_energies(mean=0, sigma=1.0, mean_barrier=1.0, random_seed=12, c_rank=10, reax_rank=10, n_samples=2)
 
     nodes_to_track = [i for i in range(len(all_lipids))]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
-    simulated_data = simulator.run_noisy_simulation(steps=2000, track_concentrations=nodes_to_track, L=L)
+    simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
+    simulated_data = simulator.run_noisy_simulation(steps=2000, track_concentrations=nodes_to_track)
 
     #mean_concentrations, std_concentrations = simulator.analyze_results()
 
-    correlation_matrix_simulated = np.corrcoef(simulated_data.T)
+    correlation_matrix_simulated = np.corrcoef(simulated_data[:,0,:].T)
     correlation_df = pd.DataFrame(correlation_matrix_simulated, index=all_lipids, columns=all_lipids)
     sns.clustermap(correlation_df, cmap='coolwarm', cbar=True, vmin=-1, vmax=1, annot=False)
     plt.tight_layout()
+    
+    pca = PCA()
+    pca.fit(simulator.free_energies)
+
+    # 2. Extract the Eigenvalues (Variances)
+    eigenvalues = pca.explained_variance_
+    ratios = pca.explained_variance_ratio_
+
+    # 3. Visualization (The "Scree Plot")
+    plt.figure(figsize=(10, 5))
+
+    # Plot the log of variances to see the drop-off clearly
+    plt.plot(ratios, marker='o', linestyle='--')
+    plt.yscale('log')  # <--- CRITICAL for low-rank data
+    plt.title("Scree Plot: Revealing the Low Rank")
+    plt.xlabel("Principal Component Index")
+    plt.ylabel("Eigenvalue (Log Scale)")
+    plt.grid(True)
     plt.show()
+
+    # 4. Check the "Intrinsic Dimension"
+    # Count how many components are effectively non-zero (above machine noise)
+    # A common threshold for numerical noise is 1e-10
+    effective_rank = np.sum(eigenvalues > 1e-10)
+    print(f"PCA estimates the rank is: {effective_rank}")
