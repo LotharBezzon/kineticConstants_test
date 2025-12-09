@@ -130,12 +130,12 @@ class Simulator:
 
         if c_L is None:
             c_L = np.random.randn(num_nodes, c_rank) / np.sqrt(c_rank) * sigma
-        c_cov_matrix = c_L @ c_L.T + np.random.randn(num_nodes, num_nodes) * 1e-2
+        c_cov_matrix = c_L @ c_L.T + np.random.randn(num_nodes, num_nodes) * 1e-5
         c_mu = np.full(num_nodes, mean)
 
         if reax_L is None:
             reax_L = np.random.randn(num_reactions, reax_rank) / np.sqrt(reax_rank) * sigma
-        reax_cov_matrix = reax_L @ reax_L.T + np.random.randn(num_reactions, num_reactions) * 1e-2
+        reax_cov_matrix = reax_L @ reax_L.T + np.random.randn(num_reactions, num_reactions) * 1e-5
         reax_mu = np.full(num_reactions, mean_barrier)
 
         self.free_energies = np.random.multivariate_normal(c_mu, c_cov_matrix, size=n_samples)
@@ -151,8 +151,8 @@ class Simulator:
                     idx += 1
         self.kinetic_constants = np.exp(-transition_free_energies) * symm_adjacency[np.newaxis, :, :]
         self.sparse_kinetic_constants = self.kinetic_constants[:, symm_adjacency > 0]
-        self.degradation_constants = np.exp(np.random.normal(mean, sigma, size=(n_samples, num_nodes)))
-        self.production_constants = np.exp(np.random.normal(mean, sigma, size=(n_samples, num_nodes)))
+        self.degradation_constants = np.exp(np.random.normal(mean-0.4, sigma/2, size=(n_samples, num_nodes)))
+        self.production_constants = np.exp(np.random.normal(mean-0.4, sigma/2, size=(n_samples, num_nodes)))
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.1 * np.random.random()
         self.log_kinetic_constants_noise = 0.04 * np.random.random()
@@ -248,6 +248,9 @@ class Simulator:
         tracked_concentrations = [[] for node in track_concentrations]
 
         k_out = np.sum(self.kinetic_constants, axis=2)
+        print(k_out.shape)
+        print(self.degradation_constants.shape)
+        print(k_out)
         for iteration in range(max_iterations):
             if iteration == max_iterations - 1:
                 raise Exception("Simulation did not converge within the maximum number of iterations.")
@@ -376,10 +379,10 @@ class Simulator:
         if not hasattr(self, 'simulated_data'):
             raise ValueError("Simulated data not found. Please run a noisy simulation with collect_data=True first.")
         
-        mean_concentrations = np.mean(self.simulated_data, axis=0)
-        std_concentrations = np.std(self.simulated_data, axis=0)
+        mean_concentrations = np.mean(self.simulated_data[:, 0, :], axis=0)
+        std_concentrations = np.std(self.simulated_data[:, 0, :], axis=0)
 
-        num_components = self.simulated_data.shape[1]
+        num_components = self.simulated_data.shape[2]
         num_rows = 8
         num_cols = (num_components + num_rows - 1) // num_rows
 
@@ -389,7 +392,7 @@ class Simulator:
                 axes[i // num_cols, i % num_cols].axis('off')
             else:
                 ax = axes[i // num_cols, i % num_cols]
-                ax.hist(self.simulated_data[:, i], bins=30, color='blue', alpha=0.7)
+                ax.hist(self.simulated_data[:, 0, i], bins=30, color='blue', alpha=0.7)
             #ax.set_title(f'Component {i}')
         #fig.suptitle('Lipids concentrations distribution in all ReferenceAtlas sample', fontsize=16)
         plt.savefig(os.path.join('simulation', 'figures', 'concentration_distributions.png'))
@@ -428,12 +431,12 @@ if __name__ == "__main__":
     simulator = Simulator(random_seed=12)
     graph = simulator.build_graph(adjacency_matrix=adj_matrix)
     #simulator.graph_info()
-    simulator.sample_free_energies(mean=0, sigma=1.0, mean_barrier=1.0, random_seed=12, c_rank=10, reax_rank=10, n_samples=2)
+    simulator.sample_free_energies(mean=0, sigma=1.0, mean_barrier=1.0, random_seed=12, c_rank=5, reax_rank=5, n_samples=10)
 
     nodes_to_track = [i for i in range(len(all_lipids))]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
     simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
-    simulated_data = simulator.run_noisy_simulation(steps=2000, track_concentrations=nodes_to_track)
+    simulated_data = simulator.run_noisy_simulation(steps=500, track_concentrations=nodes_to_track)
 
     #mean_concentrations, std_concentrations = simulator.analyze_results()
 
@@ -441,9 +444,11 @@ if __name__ == "__main__":
     correlation_df = pd.DataFrame(correlation_matrix_simulated, index=all_lipids, columns=all_lipids)
     sns.clustermap(correlation_df, cmap='coolwarm', cbar=True, vmin=-1, vmax=1, annot=False)
     plt.tight_layout()
+    plt.show()
     
     pca = PCA()
     pca.fit(simulator.free_energies)
+    print(simulator.free_energies.shape)
 
     # 2. Extract the Eigenvalues (Variances)
     eigenvalues = pca.explained_variance_
@@ -464,5 +469,5 @@ if __name__ == "__main__":
     # 4. Check the "Intrinsic Dimension"
     # Count how many components are effectively non-zero (above machine noise)
     # A common threshold for numerical noise is 1e-10
-    effective_rank = np.sum(eigenvalues > 1e-10)
+    effective_rank = np.sum(eigenvalues > 1e-3)
     print(f"PCA estimates the rank is: {effective_rank}")
