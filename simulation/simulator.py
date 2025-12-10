@@ -144,12 +144,12 @@ class Simulator:
 
         if c_L is None:
             c_L = np.random.randn(num_nodes, c_rank) / np.sqrt(c_rank) * sigma
-        c_cov_matrix = c_L @ c_L.T + np.random.randn(num_nodes, num_nodes) * 1e-6
+        c_cov_matrix = c_L @ c_L.T + np.eye(num_nodes) * 1e-4
         c_mu = np.full(num_nodes, mean)
 
         if reax_L is None:
             reax_L = np.random.randn(num_reactions, reax_rank) / np.sqrt(reax_rank) * sigma
-        reax_cov_matrix = reax_L @ reax_L.T + np.random.randn(num_reactions, num_reactions) * 1e-6
+        reax_cov_matrix = reax_L @ reax_L.T + np.eye(num_reactions) * 1e-4
         reax_mu = np.full(num_reactions, mean_barrier)
 
         self.free_energies = np.random.multivariate_normal(c_mu, c_cov_matrix, size=n_samples)
@@ -171,7 +171,7 @@ class Simulator:
         self.production_constants = np.exp(-transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]][transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]] > 0])  # from baths to nodes
         self.production_constants = np.reshape(self.production_constants, (n_samples, symm_adjacency.shape[0]))
         self.dropout = np.random.random() * 0.1
-        self.concentration_noise = 0.4 * np.random.random()
+        self.concentration_noise = 0.6 * np.random.random()
         self.log_kinetic_constants_noise = 0.4 * np.random.random()
     
     def graph_components(self):
@@ -230,16 +230,22 @@ class Simulator:
         Returns:
             dict: Dictionary of current simulation parameters."""
         
-        return {
-            'sparse_kinetic_constants': self.sparse_kinetic_constants,
-            'kinetic_constants': self.kinetic_constants,
-            'production_constants': self.production_constants,
-            'degradation_constants': self.degradation_constants,
-            'L': self.L,
-            'concentration_noise': self.concentration_noise,
-            'log_kinetic_constants_noise': self.log_kinetic_constants_noise,
-            'dropout': self.dropout
-        }
+        if not hasattr(self, 'kinetic_constants'):
+            raise ValueError("Kinetic constants not found. Please sample kinetic constants first.")
+        
+        params_dicts = []
+        for sample_idx in range(self.kinetic_constants.shape[0]):
+            params_dicts.append({
+                'sparse_log_kinetic_constants': np.log(self.sparse_kinetic_constants[sample_idx]),
+                'kinetic_constants': self.kinetic_constants[sample_idx],
+                'production_constants': self.production_constants[sample_idx],
+                'degradation_constants': self.degradation_constants[sample_idx],
+                'L': self.L,
+                'concentration_noise': self.concentration_noise,
+                'log_kinetic_constants_noise': self.log_kinetic_constants_noise,
+                'dropout': self.dropout
+            })
+        return params_dicts
     
     def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[]):
         """Run a temporal simulation until steady state is reached.
@@ -339,6 +345,17 @@ class Simulator:
         degr = xp.array(self.degradation_constants)
         prod = xp.array(self.production_constants)
         L = xp.array(self.L)
+        # Precompute logs and masks to speed up the loop
+        # Determine sparsity pattern from the first sample (assuming fixed topology)
+        kin_mask = xp.any(kin > 0, axis=0)
+        kin_nonzero = kin[:, kin_mask]
+        # Precompute log terms
+        log_kin_nonzero = xp.log(kin_nonzero + 1e-8)
+        log_degr = xp.log(degr + 1e-8)
+        log_prod = xp.log(prod + 1e-8)
+        
+        # Pre-allocate noisy_kin to avoid allocation in loop
+        noisy_kin = xp.zeros_like(kin)
 
         concentration_data = []
 
@@ -351,11 +368,17 @@ class Simulator:
             concentrations[concentrations < 0] = 0
 
             for step in range(steps):
-                noisy_kin = kin * xp.exp(xp.log(kin + 1e-8) * xp.random.normal(0, self.log_kinetic_constants_noise, size=kin.shape))
-                noisy_degr = degr * xp.exp(xp.log(degr + 1e-8) * xp.random.normal(0, self.log_kinetic_constants_noise, size=degr.shape))
-                noisy_prod = prod * xp.exp(xp.log(prod + 1e-8) * xp.random.normal(0, self.log_kinetic_constants_noise, size=prod.shape))
-
-                production = np.einsum('bji,bj->bi', noisy_kin, concentrations) + noisy_prod
+                # Generate noise only for non-zero elements
+                noise_k = xp.random.normal(0, self.log_kinetic_constants_noise, size=kin_nonzero.shape)
+                noisy_kin[:, kin_mask] = kin_nonzero * xp.exp(log_kin_nonzero * noise_k)
+                
+                noise_d = xp.random.normal(0, self.log_kinetic_constants_noise, size=degr.shape)
+                noisy_degr = degr * xp.exp(log_degr * noise_d)
+                
+                noise_p = xp.random.normal(0, self.log_kinetic_constants_noise, size=prod.shape)
+                noisy_prod = prod * xp.exp(log_prod * noise_p)
+                
+                production = xp.einsum('bji,bj->bi', noisy_kin, concentrations) + noisy_prod
                 degradation = (xp.einsum('bij->bi', noisy_kin) + noisy_degr) * concentrations
                 dCdt = production - degradation
 
@@ -436,6 +459,9 @@ if __name__ == "__main__":
         adj_matrix_pd.loc[reagent, product] += 1
 
     adj_matrix = np.array(adj_matrix_pd)
+    symmetric_adj_matrix = (adj_matrix + adj_matrix.T) > 0
+    adj_matrix = symmetric_adj_matrix.astype(int)
+    adj_matrix_pd = pd.DataFrame(adj_matrix, index=all_lipids, columns=all_lipids)
     adj_matrix_pd.to_csv('simulation/adjacency_matrix.csv')
 
     correlation_matrix_partial = pd.read_csv('simulation/correlation_matrix.csv', index_col=0)
@@ -453,9 +479,9 @@ if __name__ == "__main__":
     nodes_to_track = [i for i in range(len(all_lipids))]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
     simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
-    simulated_data = simulator.run_noisy_simulation(steps=200, num_perturbations=10, track_concentrations=nodes_to_track)
+    simulated_data = simulator.run_noisy_simulation(steps=100, num_perturbations=10, track_concentrations=nodes_to_track)
 
-    mean_concentrations, std_concentrations = simulator.analyze_results()
+    #mean_concentrations, std_concentrations = simulator.analyze_results()
 
     correlation_matrix_simulated = np.corrcoef(simulated_data[:,0,:].T)
     correlation_df = pd.DataFrame(correlation_matrix_simulated, index=all_lipids, columns=all_lipids)

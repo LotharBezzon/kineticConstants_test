@@ -27,7 +27,6 @@ class mlp(torch.nn.Module):
         super().__init__()
         if isinstance(hidden_dim, int):
             hidden_dim = [hidden_dim]*(hidden_num+1)
-        print(f"MLP hidden dimensions set to: {hidden_dim}")
         self.layers = [Linear(in_channels, hidden_dim[0]), PReLU()]
         for i in range(hidden_num-1):
             self.layers.append(Dropout(0.1))
@@ -65,6 +64,24 @@ class LearnablePositionalEncoding(nn.Module):
 
 # --- 1. The GNN Part of the Model ---
 
+class MessagePassingLayer(MessagePassing):
+    def __init__(self, in_channels, out_channels):
+        super(MessagePassingLayer, self).__init__(aggr='add')  # "Add" aggregation.
+        self.mlp = mlp(2*in_channels, out_channels, hidden_dim=2*out_channels, hidden_num=1)
+        self.mlp_out = mlp(out_channels, out_channels, hidden_dim=2*out_channels, hidden_num=1)
+
+    def forward(self, x, edge_index):
+        # x has shape [N, in_channels]
+        # edge_index has shape [2, E]
+
+        # Start propagating messages
+        return self.mlp_out(self.propagate(edge_index, x=x))
+
+    def message(self, x_i, x_j):
+        # x_j has shape [E, out_channels]
+        return self.mlp(torch.cat([x_i, x_j], dim=1))
+
+
 class SimpleGNN(nn.Module):
     """
     A GNN model for node and edge predictions, with node embedding.
@@ -75,25 +92,31 @@ class SimpleGNN(nn.Module):
         self.embed = mlp(in_channels, hidden_channels, hidden_dim=2*hidden_channels)
         self.graph_encoder = mlp(hidden_channels, hidden_channels, hidden_dim=2*hidden_channels)
         self.convs = nn.ModuleList()
-        for _ in range(num_layers):
-            self.convs.append(GCNConv(hidden_channels, hidden_channels))
+        for _ in range(num_layers - 1):
+            self.convs.append(GCNConv(2*hidden_channels, 2*hidden_channels))
+        self.convs.append(GCNConv(2*hidden_channels, hidden_channels))
         self.node_predictor = mlp(hidden_channels, node_out_channels)
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 
-    def forward(self, x, edge_index, batch=None):
+    def forward(self, x, edge_index, batch=None, return_embeddings=False):
         #x = self.pos_encoder(x.unsqueeze(1)).squeeze(1)
         x = self.embed(x)
         g = global_mean_pool(x, batch)
         #print(g.shape, x.shape, batch.shape)
-        x = x + self.graph_encoder(g)[batch]
+        h = torch.cat([x, self.graph_encoder(g)[batch]], dim=1)
         #print(x.shape)
-        for conv in self.convs:
-            x = F.relu(conv(x, edge_index))
-        node_preds = self.node_predictor(x)
+        for conv in self.convs[:-1]:
+            h = h + F.relu(conv(h, edge_index))
+        h = self.convs[-1](h, edge_index)
+        final_embedding = x + h
+        node_preds = self.node_predictor(final_embedding)
         row, col = edge_index
-        edge_preds = self.edge_predictor(torch.cat([x[row], x[col]], dim=1))
+        edge_preds = self.edge_predictor(torch.cat([final_embedding[row], final_embedding[col]], dim=1))
 
-        return node_preds, edge_preds
+        if return_embeddings:
+            return node_preds, edge_preds, final_embedding
+        else:
+            return node_preds, edge_preds
     
 # --- 2. The Simulation ---
 
