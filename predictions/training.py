@@ -26,9 +26,9 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load dataset
-    db_path = 'simulation/simulated_graph_dataset'
+    db_path = 'simulation/simulated_graph_dataset_only_steady_state'
     dataset = SimulatedGraphDataset(root=db_path)
-    dataset = dataset[:10000]
+    dataset = dataset[:20000]
     torch.manual_seed(42)
     dataset = dataset.shuffle()  # Shuffle the dataset
     print(f'Dataset size: {len(dataset)} graphs')
@@ -42,8 +42,11 @@ if __name__ == "__main__":
 
     # Initialize model, loss function, and optimizer
     model = SimpleGNN(in_channels=2000, hidden_channels=256, node_out_channels=4, edge_out_channels=2).to(device)
+    model_steady_state = SimpleGNN(in_channels=1, hidden_channels=64, node_out_channels=4, edge_out_channels=2).to(device)
     criterion = nn.KLDivLoss(reduction='batchmean')
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer_steady_state = torch.optim.Adam(model_steady_state.parameters(), lr=0.01)
+    scheduler_steady_state = torch.optim.lr_scheduler.StepLR(optimizer_steady_state, step_size=1, gamma=0.9)
     mse_loss = nn.MSELoss()
 
     ckpt_dir = 'model_checkpoints'
@@ -60,14 +63,14 @@ if __name__ == "__main__":
 
     epochs = 10  # Number of training epochs
     for epoch in range(epochs):
-        model.train()
+        model_steady_state.train()
         total_loss = 0.0
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
             batch = batch.to(device)
-            optimizer.zero_grad()
+            optimizer_steady_state.zero_grad()
             
             # Forward pass
-            node_out, edge_out = model(batch.x, batch.edge_index, batch.batch)
+            node_out, edge_out = model_steady_state(batch.x, batch.edge_index, batch.batch)
             k_prod, k_deg, sigma_conc, dropout = node_out.split([1, 1, 1, 1], dim=-1)
             k, sigma_k = edge_out.split([1, 1], dim=-1)
             #k = to_dense_adj(batch.edge_index, max_num_nodes=batch.num_nodes, edge_attr=k).squeeze(0)
@@ -103,14 +106,14 @@ if __name__ == "__main__":
             loss.backward()
             
             # Update weights
-            optimizer.step()
+            optimizer_steady_state.step()
             
             total_loss += loss.item()
         
         # Save checkpoint
         if (epoch + 1) % 2 == 0:
-            torch.save(model.state_dict(), os.path.join(ckpt_dir, f'model_checkpoint_epoch_{epoch+1}.pt'))
-            torch.save(optimizer.state_dict(), os.path.join(ckpt_dir, f'optimizer_checkpoint_epoch_{epoch+1}.pt'))
+            torch.save(model_steady_state.state_dict(), os.path.join(ckpt_dir, f'model_ss_checkpoint_epoch_{epoch+1}.pt'))
+            torch.save(optimizer_steady_state.state_dict(), os.path.join(ckpt_dir, f'optimizer_ss_checkpoint_epoch_{epoch+1}.pt'))
             
         
         print(f"Epoch {epoch+1}, Loss: {total_loss / len(train_loader)}")

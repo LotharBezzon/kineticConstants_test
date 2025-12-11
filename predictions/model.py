@@ -102,9 +102,8 @@ class SimpleGNN(nn.Module):
         #x = self.pos_encoder(x.unsqueeze(1)).squeeze(1)
         x = self.embed(x)
         g = global_mean_pool(x, batch)
-        #print(g.shape, x.shape, batch.shape)
         h = torch.cat([x, self.graph_encoder(g)[batch]], dim=1)
-        #print(x.shape)
+
         for conv in self.convs[:-1]:
             h = h + F.relu(conv(h, edge_index))
         h = self.convs[-1](h, edge_index)

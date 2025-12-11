@@ -6,6 +6,7 @@ import pandas as pd
 import os
 import seaborn as sns
 from sklearn.decomposition import PCA
+from numpy.linalg import matrix_power
 
 def add_baths(adjacency_matrix):
     """Adds bath connections to each node in the adjacency matrix.
@@ -20,6 +21,25 @@ def add_baths(adjacency_matrix):
         new_adj_matrix[i, num_nodes + i] = 1  # connection to bath
         new_adj_matrix[num_nodes + i, i] = 1  # connection from bath
     return new_adj_matrix
+
+def find_cycles_for_edge(i, j, adjacency_matrix, max_cycle_length=6):
+    """Finds all simple cycles in the graph that include the edge (i, j).
+    Args:
+        i (int): Starting node of the edge.
+        j (int): Ending node of the edge.
+        adjacency_matrix (np.ndarray): The adjacency matrix of the graph.
+        max_cycle_length (int): Maximum length of cycles to consider."""
+    cycles = np.zeros(max_cycle_length + 1, dtype=int)
+    for len in range(2, max_cycle_length + 1):
+        len_cycles = matrix_power(adjacency_matrix, len-1)[i, j]
+        for divisor in range(2, len):
+            if len % divisor == 0:
+                len_cycles -= cycles[divisor]
+
+        cycles[len] = len_cycles
+
+    return cycles
+
 
 class Simulator:
     """A simulator to produce data to train a kinetic constants estimator.
@@ -173,7 +193,6 @@ class Simulator:
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.6 * np.random.random()
         self.log_kinetic_constants_noise = 0.4 * np.random.random()
-        print(self.dropout, self.concentration_noise, self.log_kinetic_constants_noise)
     
     def graph_components(self):
         """Identifies connected components in the graph. Needed to avoid singular matrices during simulation."""
@@ -248,7 +267,7 @@ class Simulator:
             })
         return params_dicts
     
-    def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[]):
+    def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[], track_reference=False):
         """Run a temporal simulation until steady state is reached.
         Args:
             initial_concentrations (np.ndarray): Initial concentrations of the nodes.
@@ -270,6 +289,7 @@ class Simulator:
             concentrations = np.ones((num_samples, num_nodes))
 
         tracked_concentrations = [[] for node in track_concentrations]
+        tracked_reference = [[] for node in track_concentrations] if track_reference else None
 
         k_out = np.einsum('bij->bi', self.kinetic_constants)
         for iteration in range(max_iterations):
@@ -294,6 +314,8 @@ class Simulator:
 
             for i, node in enumerate(track_concentrations):
                 tracked_concentrations[i].append(new_concentrations[0, node])
+                if track_reference:
+                    tracked_reference[i].append(new_concentrations[1, node])
 
             #print(f"Iteration {iteration}: Max Relative Change = {np.max(np.abs(new_concentrations - concentrations) / concentrations):.6f}, Index of Max Change = {np.argmax(np.abs(new_concentrations - concentrations) / concentrations)}")
             if np.max(np.abs(new_concentrations - concentrations) / (concentrations + 1e-10)) < convergence_threshold:
@@ -304,7 +326,10 @@ class Simulator:
 
         if track_concentrations != []:
             for i in range(len(tracked_concentrations)):
-                plt.plot(tracked_concentrations[i])
+                color = 'C' + str(i)
+                plt.plot(tracked_concentrations[i], color=color)
+                if track_reference:
+                    plt.plot(tracked_reference[i], linestyle='dashed', color=color)
             plt.xlabel('Time Steps')
             plt.ylabel('Concentration')
             plt.title('Concentration Trajectories of Tracked Nodes')
@@ -402,7 +427,7 @@ class Simulator:
         #np.random.shuffle(self.simulated_data)
 
         if track_concentrations != []:
-            plt.plot(self.simulated_data[:, 1, track_concentrations])
+            plt.plot(self.simulated_data[:, 0, track_concentrations])
             plt.xlabel('Time Steps')
             plt.ylabel('Concentration')
             plt.title('Noisy Simulation Trajectories of Tracked Nodes')
@@ -480,9 +505,10 @@ if __name__ == "__main__":
     nodes_to_track = [i for i in range(len(all_lipids))]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
     simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
+    simulator.run_equilibration(track_concentrations=nodes_to_track)
     simulated_data = simulator.run_noisy_simulation(steps=100, num_perturbations=10, track_concentrations=nodes_to_track)
 
-    mean_concentrations, std_concentrations = simulator.analyze_results()
+    #mean_concentrations, std_concentrations = simulator.analyze_results()
 
     correlation_matrix_simulated = np.corrcoef(simulated_data[:,0,:].T)
     correlation_df = pd.DataFrame(correlation_matrix_simulated, index=all_lipids, columns=all_lipids)

@@ -61,7 +61,7 @@ def produce_simulations(n_samples, ks_per_sample, n_timesteps, n_perturbations=2
                 output.append(row)
         #output.append({'simulation_index': np.full(n_timesteps, i, dtype=int), 'timestep': np.arange(n_timesteps), **{col: simulator.simulated_data[:, idx] for idx, col in enumerate(columns)}})
 
-def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100, adj_matrix=None, n_perturbations=20, random_seed=42, L=None, **kwargs):
+def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100, adj_matrix=None, n_perturbations=20, random_seed=42, L=None, only_steady_state=False, **kwargs):
     """Produce simulations given the number of set of kinetic constants to sample and timesteps.
 
     Args:
@@ -87,11 +87,15 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
         simulator.sample_free_energies(random_seed=random_seeds[i], n_samples=ks_per_sample)
         simulator.run_equilibration()
         simulator.L = L if L is not None else np.eye(simulator.kinetic_constants.shape[1])
-        simulator.run_noisy_simulation(steps=n_timesteps, num_perturbations=n_perturbations)
+        if not only_steady_state:
+            simulator.run_noisy_simulation(steps=n_timesteps, num_perturbations=n_perturbations)
 
         for n in range(ks_per_sample):
             data = Data()
-            data.x = torch.tensor(simulator.simulated_data[:, n, :].T, dtype=torch.float32)
+            if only_steady_state:
+                data.x = torch.tensor(simulator.concentrations[n, :].T, dtype=torch.float32).unsqueeze(-1)
+            else:
+                data.x = torch.tensor(simulator.simulated_data[:, n, :].T, dtype=torch.float32)
             data.edge_index = torch.tensor(np.vstack(np.nonzero(adj_matrix)), dtype=torch.long)
             data.parameters = simulator.get_simulation_parameters()[n]
             data_list.append(data)
@@ -100,8 +104,9 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
         
 
 class SimulatedGraphDataset(OnDiskDataset):
-    def __init__(self, root, transform=None, pre_filter=None, random_seed=42, adj_matrix=None, L=None, n_samples=10000, ks_per_sample=100, n_perturbations=20, chunk_size=1000, n_timesteps=1000):
+    def __init__(self, root, transform=None, pre_filter=None, random_seed=42, only_steady_state=False, adj_matrix=None, L=None, n_samples=10000, ks_per_sample=100, n_perturbations=20, chunk_size=1000, n_timesteps=1000):
         self.random_seed = random_seed
+        self.only_steady_state = only_steady_state
         self.adj_matrix = adj_matrix
         self.L = L
         self.n_samples = n_samples
@@ -135,7 +140,8 @@ class SimulatedGraphDataset(OnDiskDataset):
                 n_perturbations=self.n_perturbations,
                 random_seed=random_seeds[chunk_idx],
                 adj_matrix=self.adj_matrix,
-                L=self.L
+                L=self.L,
+                only_steady_state=self.only_steady_state
             )
             if self.pre_filter is not None:
                 data_list = [data for data in data_list if self.pre_filter(data)]
@@ -163,8 +169,8 @@ if __name__ == "__main__":
 
     #produce_simulations(10000, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids, random_seed=12345)
 
-    os.makedirs('simulation/simulated_graph_dataset', exist_ok=True)
-    db_root = 'simulation/simulated_graph_dataset'
+    os.makedirs('simulation/simulated_graph_dataset_only_steady_state', exist_ok=True)
+    db_root = 'simulation/simulated_graph_dataset_only_steady_state'
     dataset = SimulatedGraphDataset(
         root=db_root,
         random_seed=123,
@@ -174,5 +180,6 @@ if __name__ == "__main__":
         ks_per_sample=100,
         n_perturbations=20,
         chunk_size=10,
-        n_timesteps=100
+        n_timesteps=100,
+        only_steady_state=True
     )
