@@ -173,6 +173,7 @@ class Simulator:
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.6 * np.random.random()
         self.log_kinetic_constants_noise = 0.4 * np.random.random()
+        print(self.dropout, self.concentration_noise, self.log_kinetic_constants_noise)
     
     def graph_components(self):
         """Identifies connected components in the graph. Needed to avoid singular matrices during simulation."""
@@ -398,10 +399,10 @@ class Simulator:
         else:
             self.simulated_data = np.array(concentration_data)  #shape (steps, num_nodes)
         
-        np.random.shuffle(self.simulated_data)
+        #np.random.shuffle(self.simulated_data)
 
         if track_concentrations != []:
-            plt.plot(self.simulated_data[:, 0, track_concentrations])
+            plt.plot(self.simulated_data[:, 1, track_concentrations])
             plt.xlabel('Time Steps')
             plt.ylabel('Concentration')
             plt.title('Noisy Simulation Trajectories of Tracked Nodes')
@@ -474,14 +475,14 @@ if __name__ == "__main__":
     simulator = Simulator(random_seed=42)
     graph = simulator.build_graph(adjacency_matrix=adj_matrix)
     #simulator.graph_info()
-    simulator.sample_free_energies(mean=0, sigma=1.0, mean_barrier=1.0, random_seed=22, c_rank=5, reax_rank=5, n_samples=10)
+    simulator.sample_free_energies(mean=0, sigma=1.0, mean_barrier=1.0, random_seed=12, c_rank=5, reax_rank=5, n_samples=10)
 
     nodes_to_track = [i for i in range(len(all_lipids))]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
     simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
     simulated_data = simulator.run_noisy_simulation(steps=100, num_perturbations=10, track_concentrations=nodes_to_track)
 
-    #mean_concentrations, std_concentrations = simulator.analyze_results()
+    mean_concentrations, std_concentrations = simulator.analyze_results()
 
     correlation_matrix_simulated = np.corrcoef(simulated_data[:,0,:].T)
     correlation_df = pd.DataFrame(correlation_matrix_simulated, index=all_lipids, columns=all_lipids)
