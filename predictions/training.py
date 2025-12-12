@@ -26,9 +26,9 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load dataset
-    db_path = 'simulation/simulated_graph_dataset_only_steady_state'
+    db_path = 'simulation/simulated_graph_dataset_only_steady_state_free_energies'
     dataset = SimulatedGraphDataset(root=db_path)
-    dataset = dataset[:20000]
+    #dataset = dataset[:20000]
     torch.manual_seed(42)
     dataset = dataset.shuffle()  # Shuffle the dataset
     print(f'Dataset size: {len(dataset)} graphs')

@@ -1,0 +1,459 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script>function neighbourhoodHighlight(params) {
+  // console.log("in nieghbourhoodhighlight");
+  allNodes = nodes.get({ returnType: "Object" });
+  // originalNodes = JSON.parse(JSON.stringify(allNodes));
+  // if something is selected:
+  if (params.nodes.length > 0) {
+    highlightActive = true;
+    var i, j;
+    var selectedNode = params.nodes[0];
+    var degrees = 2;
+
+    // mark all nodes as hard to read.
+    for (let nodeId in allNodes) {
+      // nodeColors[nodeId] = allNodes[nodeId].color;
+      allNodes[nodeId].color = "rgba(200,200,200,0.5)";
+      if (allNodes[nodeId].hiddenLabel === undefined) {
+        allNodes[nodeId].hiddenLabel = allNodes[nodeId].label;
+        allNodes[nodeId].label = undefined;
+      }
+    }
+    var connectedNodes = network.getConnectedNodes(selectedNode);
+    var allConnectedNodes = [];
+
+    // get the second degree nodes
+    for (i = 1; i < degrees; i++) {
+      for (j = 0; j < connectedNodes.length; j++) {
+        allConnectedNodes = allConnectedNodes.concat(
+          network.getConnectedNodes(connectedNodes[j])
+        );
+      }
+    }
+
+    // all second degree nodes get a different color and their label back
+    for (i = 0; i < allConnectedNodes.length; i++) {
+      // allNodes[allConnectedNodes[i]].color = "pink";
+      allNodes[allConnectedNodes[i]].color = "rgba(150,150,150,0.75)";
+      if (allNodes[allConnectedNodes[i]].hiddenLabel !== undefined) {
+        allNodes[allConnectedNodes[i]].label =
+          allNodes[allConnectedNodes[i]].hiddenLabel;
+        allNodes[allConnectedNodes[i]].hiddenLabel = undefined;
+      }
+    }
+
+    // all first degree nodes get their own color and their label back
+    for (i = 0; i < connectedNodes.length; i++) {
+      // allNodes[connectedNodes[i]].color = undefined;
+      allNodes[connectedNodes[i]].color = nodeColors[connectedNodes[i]];
+      if (allNodes[connectedNodes[i]].hiddenLabel !== undefined) {
+        allNodes[connectedNodes[i]].label =
+          allNodes[connectedNodes[i]].hiddenLabel;
+        allNodes[connectedNodes[i]].hiddenLabel = undefined;
+      }
+    }
+
+    // the main node gets its own color and its label back.
+    // allNodes[selectedNode].color = undefined;
+    allNodes[selectedNode].color = nodeColors[selectedNode];
+    if (allNodes[selectedNode].hiddenLabel !== undefined) {
+      allNodes[selectedNode].label = allNodes[selectedNode].hiddenLabel;
+      allNodes[selectedNode].hiddenLabel = undefined;
+    }
+  } else if (highlightActive === true) {
+    // console.log("highlightActive was true");
+    // reset all nodes
+    for (let nodeId in allNodes) {
+      // allNodes[nodeId].color = "purple";
+      allNodes[nodeId].color = nodeColors[nodeId];
+      // delete allNodes[nodeId].color;
+      if (allNodes[nodeId].hiddenLabel !== undefined) {
+        allNodes[nodeId].label = allNodes[nodeId].hiddenLabel;
+        allNodes[nodeId].hiddenLabel = undefined;
+      }
+    }
+    highlightActive = false;
+  }
+
+  // transform the object into an array
+  var updateArray = [];
+  if (params.nodes.length > 0) {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        // console.log(allNodes[nodeId]);
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  } else {
+    // console.log("Nothing was selected");
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        // console.log(allNodes[nodeId]);
+        // allNodes[nodeId].color = {};
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  }
+}
+
+function filterHighlight(params) {
+  allNodes = nodes.get({ returnType: "Object" });
+  // if something is selected:
+  if (params.nodes.length > 0) {
+    filterActive = true;
+    let selectedNodes = params.nodes;
+
+    // hiding all nodes and saving the label
+    for (let nodeId in allNodes) {
+      allNodes[nodeId].hidden = true;
+      if (allNodes[nodeId].savedLabel === undefined) {
+        allNodes[nodeId].savedLabel = allNodes[nodeId].label;
+        allNodes[nodeId].label = undefined;
+      }
+    }
+
+    for (let i=0; i < selectedNodes.length; i++) {
+      allNodes[selectedNodes[i]].hidden = false;
+      if (allNodes[selectedNodes[i]].savedLabel !== undefined) {
+        allNodes[selectedNodes[i]].label = allNodes[selectedNodes[i]].savedLabel;
+        allNodes[selectedNodes[i]].savedLabel = undefined;
+      }
+    }
+
+  } else if (filterActive === true) {
+    // reset all nodes
+    for (let nodeId in allNodes) {
+      allNodes[nodeId].hidden = false;
+      if (allNodes[nodeId].savedLabel !== undefined) {
+        allNodes[nodeId].label = allNodes[nodeId].savedLabel;
+        allNodes[nodeId].savedLabel = undefined;
+      }
+    }
+    filterActive = false;
+  }
+
+  // transform the object into an array
+  var updateArray = [];
+  if (params.nodes.length > 0) {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  } else {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  }
+}
+
+function selectNode(nodes) {
+  network.selectNodes(nodes);
+  neighbourhoodHighlight({ nodes: nodes });
+  return nodes;
+}
+
+function selectNodes(nodes) {
+  network.selectNodes(nodes);
+  filterHighlight({nodes: nodes});
+  return nodes;
+}
+
+function highlightFilter(filter) {
+  let selectedNodes = []
+  let selectedProp = filter['property']
+  if (filter['item'] === 'node') {
+    let allNodes = nodes.get({ returnType: "Object" });
+    for (let nodeId in allNodes) {
+      if (allNodes[nodeId][selectedProp] && filter['value'].includes((allNodes[nodeId][selectedProp]).toString())) {
+        selectedNodes.push(nodeId)
+      }
+    }
+  }
+  else if (filter['item'] === 'edge'){
+    let allEdges = edges.get({returnType: 'object'});
+    // check if the selected property exists for selected edge and select the nodes connected to the edge
+    for (let edge in allEdges) {
+      if (allEdges[edge][selectedProp] && filter['value'].includes((allEdges[edge][selectedProp]).toString())) {
+        selectedNodes.push(allEdges[edge]['from'])
+        selectedNodes.push(allEdges[edge]['to'])
+      }
+    }
+  }
+  selectNodes(selectedNodes)
+}</script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+            
+            
+            
+            
+            
+
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 750px;
+                 background-color: #222222;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+             #loadingBar {
+                 position:absolute;
+                 top:0px;
+                 left:0px;
+                 width: 100%;
+                 height: 750px;
+                 background-color:rgba(200,200,200,0.8);
+                 -webkit-transition: all 0.5s ease;
+                 -moz-transition: all 0.5s ease;
+                 -ms-transition: all 0.5s ease;
+                 -o-transition: all 0.5s ease;
+                 transition: all 0.5s ease;
+                 opacity:1;
+             }
+
+             #bar {
+                 position:absolute;
+                 top:0px;
+                 left:0px;
+                 width:20px;
+                 height:20px;
+                 margin:auto auto auto auto;
+                 border-radius:11px;
+                 border:2px solid rgba(30,30,30,0.05);
+                 background: rgb(0, 173, 246); /* Old browsers */
+                 box-shadow: 2px 0px 4px rgba(0,0,0,0.4);
+             }
+
+             #border {
+                 position:absolute;
+                 top:10px;
+                 left:10px;
+                 width:500px;
+                 height:23px;
+                 margin:auto auto auto auto;
+                 box-shadow: 0px 0px 4px rgba(0,0,0,0.2);
+                 border-radius:10px;
+             }
+
+             #text {
+                 position:absolute;
+                 top:8px;
+                 left:530px;
+                 width:30px;
+                 height:50px;
+                 margin:auto auto auto auto;
+                 font-size:22px;
+                 color: #000000;
+             }
+
+             div.outerBorder {
+                 position:relative;
+                 top:400px;
+                 width:600px;
+                 height:44px;
+                 margin:auto auto auto auto;
+                 border:8px solid rgba(0,0,0,0.1);
+                 background: rgb(252,252,252); /* Old browsers */
+                 background: -moz-linear-gradient(top,  rgba(252,252,252,1) 0%, rgba(237,237,237,1) 100%); /* FF3.6+ */
+                 background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,rgba(252,252,252,1)), color-stop(100%,rgba(237,237,237,1))); /* Chrome,Safari4+ */
+                 background: -webkit-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* Chrome10+,Safari5.1+ */
+                 background: -o-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* Opera 11.10+ */
+                 background: -ms-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* IE10+ */
+                 background: linear-gradient(to bottom,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* W3C */
+                 filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#fcfcfc', endColorstr='#ededed',GradientType=0 ); /* IE6-9 */
+                 border-radius:72px;
+                 box-shadow: 0px 0px 10px rgba(0,0,0,0.2);
+             }
+             
+
+             
+             #config {
+                 float: left;
+                 width: 400px;
+                 height: 600px;
+             }
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+            <div id="loadingBar">
+              <div class="outerBorder">
+                <div id="text">0%</div>
+                <div id="border">
+                  <div id="bar"></div>
+                </div>
+              </div>
+            </div>
+        
+        
+            <div id="config"></div>
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"font": {"color": "white"}, "group": 4, "id": "Cer 36:1;O2", "label": "Cer 36:1;O2", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "HexCer 36:1;O2", "label": "HexCer 36:1;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 4, "id": "SM 36:1;O2", "label": "SM 36:1;O2", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "Cer 40:0;O2", "label": "Cer 40:0;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "HexCer 40:0;O2", "label": "HexCer 40:0;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "Cer 40:1;O2", "label": "Cer 40:1;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "HexCer 40:1;O2", "label": "HexCer 40:1;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "Cer 40:2;O2", "label": "Cer 40:2;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "HexCer 40:2;O2", "label": "HexCer 40:2;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "Cer 41:2;O2", "label": "Cer 41:2;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 4, "id": "SM 41:2;O2", "label": "SM 41:2;O2", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "Cer 42:1;O2", "label": "Cer 42:1;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "HexCer 42:1;O2", "label": "HexCer 42:1;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "SM 42:1;O2", "label": "SM 42:1;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "Cer 42:2;O2", "label": "Cer 42:2;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "HexCer 42:2;O2", "label": "HexCer 42:2;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "SM 42:2;O2", "label": "SM 42:2;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 4, "id": "DG 35:0", "label": "DG 35:0", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 9, "id": "PC 35:0", "label": "PC 35:0", "shape": "dot", "size": 10, "title": "Cluster 9"}, {"font": {"color": "white"}, "group": 4, "id": "PG 35:0", "label": "PG 35:0", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "Hex2Cer 40:0;O2", "label": "Hex2Cer 40:0;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "Hex2Cer 40:1;O2", "label": "Hex2Cer 40:1;O2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 11, "id": "LPA 18:1", "label": "LPA 18:1", "shape": "dot", "size": 10, "title": "Cluster 11"}, {"font": {"color": "white"}, "group": 5, "id": "PA 32:1", "label": "PA 32:1", "shape": "dot", "size": 10, "title": "Cluster 5"}, {"font": {"color": "white"}, "group": 4, "id": "PA 34:1", "label": "PA 34:1", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PA 36:1", "label": "PA 36:1", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 7, "id": "PA 36:2", "label": "PA 36:2", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 6, "id": "PA 36:4", "label": "PA 36:4", "shape": "dot", "size": 10, "title": "Cluster 6"}, {"font": {"color": "white"}, "group": 12, "id": "PA 38:3", "label": "PA 38:3", "shape": "dot", "size": 10, "title": "Cluster 12"}, {"font": {"color": "white"}, "group": 2, "id": "PA 38:4", "label": "PA 38:4", "shape": "dot", "size": 10, "title": "Cluster 2"}, {"font": {"color": "white"}, "group": 4, "id": "PA 38:5", "label": "PA 38:5", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PA 40:4", "label": "PA 40:4", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PA 40:6", "label": "PA 40:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 10, "id": "LPC 16:0", "label": "LPC 16:0", "shape": "dot", "size": 10, "title": "Cluster 10"}, {"font": {"color": "white"}, "group": 12, "id": "LPC 18:0", "label": "LPC 18:0", "shape": "dot", "size": 10, "title": "Cluster 12"}, {"font": {"color": "white"}, "group": 5, "id": "PC 30:0", "label": "PC 30:0", "shape": "dot", "size": 10, "title": "Cluster 5"}, {"font": {"color": "white"}, "group": 4, "id": "PC 32:0", "label": "PC 32:0", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 7, "id": "PC 32:1", "label": "PC 32:1", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 4, "id": "PC 34:0", "label": "PC 34:0", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 6, "id": "PC 34:1", "label": "PC 34:1", "shape": "dot", "size": 10, "title": "Cluster 6"}, {"font": {"color": "white"}, "group": 4, "id": "PC 34:2", "label": "PC 34:2", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 2, "id": "PC 36:1", "label": "PC 36:1", "shape": "dot", "size": 10, "title": "Cluster 2"}, {"font": {"color": "white"}, "group": 2, "id": "PC 36:2", "label": "PC 36:2", "shape": "dot", "size": 10, "title": "Cluster 2"}, {"font": {"color": "white"}, "group": 4, "id": "PC 36:3", "label": "PC 36:3", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 9, "id": "PC 36:4", "label": "PC 36:4", "shape": "dot", "size": 10, "title": "Cluster 9"}, {"font": {"color": "white"}, "group": 1, "id": "PC 38:1", "label": "PC 38:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "PC 38:2", "label": "PC 38:2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 4, "id": "PC 38:4", "label": "PC 38:4", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PC 38:5", "label": "PC 38:5", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PC 38:6", "label": "PC 38:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 7, "id": "PC O-32:0", "label": "PC O-32:0", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 1, "id": "PC 40:1", "label": "PC 40:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "PC 40:2", "label": "PC 40:2", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 7, "id": "PC 40:4", "label": "PC 40:4", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 4, "id": "PC 40:6", "label": "PC 40:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 2, "id": "LPC 18:1", "label": "LPC 18:1", "shape": "dot", "size": 10, "title": "Cluster 2"}, {"font": {"color": "white"}, "group": 7, "id": "LPC 20:1", "label": "LPC 20:1", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 9, "id": "PC 35:1", "label": "PC 35:1", "shape": "dot", "size": 10, "title": "Cluster 9"}, {"font": {"color": "white"}, "group": 4, "id": "PC 40:7", "label": "PC 40:7", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "PC 42:1", "label": "PC 42:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "PC O-34:1", "label": "PC O-34:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 1, "id": "PC O-36:1", "label": "PC O-36:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 9, "id": "PC 37:1", "label": "PC 37:1", "shape": "dot", "size": 10, "title": "Cluster 9"}, {"font": {"color": "white"}, "group": 8, "id": "LPC 20:4", "label": "LPC 20:4", "shape": "dot", "size": 10, "title": "Cluster 8"}, {"font": {"color": "white"}, "group": 4, "id": "PC 38:7", "label": "PC 38:7", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "LPC 22:6", "label": "LPC 22:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 9, "id": "PC 39:6", "label": "PC 39:6", "shape": "dot", "size": 10, "title": "Cluster 9"}, {"font": {"color": "white"}, "group": 11, "id": "LPC O-16:0", "label": "LPC O-16:0", "shape": "dot", "size": 10, "title": "Cluster 11"}, {"font": {"color": "white"}, "group": 1, "id": "LPC O-18:0", "label": "LPC O-18:0", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 12, "id": "LPE 18:0", "label": "LPE 18:0", "shape": "dot", "size": 10, "title": "Cluster 12"}, {"font": {"color": "white"}, "group": 9, "id": "PE 34:0", "label": "PE 34:0", "shape": "dot", "size": 10, "title": "Cluster 9"}, {"font": {"color": "white"}, "group": 4, "id": "PE 36:0", "label": "PE 36:0", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 3, "id": "PE 36:1", "label": "PE 36:1", "shape": "dot", "size": 10, "title": "Cluster 3"}, {"font": {"color": "white"}, "group": 9, "id": "PE 38:1", "label": "PE 38:1", "shape": "dot", "size": 10, "title": "Cluster 9"}, {"font": {"color": "white"}, "group": 7, "id": "PE 38:4", "label": "PE 38:4", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 5, "id": "PE 40:4", "label": "PE 40:4", "shape": "dot", "size": 10, "title": "Cluster 5"}, {"font": {"color": "white"}, "group": 4, "id": "PE 40:6", "label": "PE 40:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "LPE 18:1", "label": "LPE 18:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 4, "id": "PE 38:6", "label": "PE 38:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PE 40:7", "label": "PE 40:7", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "LPE 20:0", "label": "LPE 20:0", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 4, "id": "PE 42:6", "label": "PE 42:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "LPE 22:1", "label": "LPE 22:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 3, "id": "LPE 22:4", "label": "LPE 22:4", "shape": "dot", "size": 10, "title": "Cluster 3"}, {"font": {"color": "white"}, "group": 4, "id": "PE 42:9", "label": "PE 42:9", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "LPE 22:6", "label": "LPE 22:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 7, "id": "PE 38:7", "label": "PE 38:7", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 2, "id": "LPG 20:1", "label": "LPG 20:1", "shape": "dot", "size": 10, "title": "Cluster 2"}, {"font": {"color": "white"}, "group": 7, "id": "PG 34:1", "label": "PG 34:1", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 4, "id": "PG 36:1", "label": "PG 36:1", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PG 36:2", "label": "PG 36:2", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 2, "id": "PG 37:1", "label": "PG 37:1", "shape": "dot", "size": 10, "title": "Cluster 2"}, {"font": {"color": "white"}, "group": 9, "id": "PG 38:1", "label": "PG 38:1", "shape": "dot", "size": 10, "title": "Cluster 9"}, {"font": {"color": "white"}, "group": 4, "id": "PG 38:3", "label": "PG 38:3", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PG 38:4", "label": "PG 38:4", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PG 40:4", "label": "PG 40:4", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PG 40:5", "label": "PG 40:5", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 4, "id": "PG 40:6", "label": "PG 40:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "LPS 16:0", "label": "LPS 16:0", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 3, "id": "PS 32:1", "label": "PS 32:1", "shape": "dot", "size": 10, "title": "Cluster 3"}, {"font": {"color": "white"}, "group": 7, "id": "PS 34:1", "label": "PS 34:1", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 4, "id": "PS 36:0", "label": "PS 36:0", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "PS 36:1", "label": "PS 36:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 6, "id": "PS 36:2", "label": "PS 36:2", "shape": "dot", "size": 10, "title": "Cluster 6"}, {"font": {"color": "white"}, "group": 4, "id": "PS 36:3", "label": "PS 36:3", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 7, "id": "PS 36:4", "label": "PS 36:4", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 1, "id": "PS 38:1", "label": "PS 38:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 4, "id": "PS 38:5", "label": "PS 38:5", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 7, "id": "PA 32:0", "label": "PA 32:0", "shape": "dot", "size": 10, "title": "Cluster 7"}, {"font": {"color": "white"}, "group": 1, "id": "PE O-36:1", "label": "PE O-36:1", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 4, "id": "PS 40:6", "label": "PS 40:6", "shape": "dot", "size": 10, "title": "Cluster 4"}, {"font": {"color": "white"}, "group": 1, "id": "PS 42:6", "label": "PS 42:6", "shape": "dot", "size": 10, "title": "Cluster 1"}, {"font": {"color": "white"}, "group": 6, "id": "PS 42:9", "label": "PS 42:9", "shape": "dot", "size": 10, "title": "Cluster 6"}]);
+                  edges = new vis.DataSet([{"from": "Cer 36:1;O2", "to": "HexCer 36:1;O2", "width": 1}, {"from": "Cer 36:1;O2", "to": "SM 36:1;O2", "width": 1}, {"from": "Cer 40:0;O2", "to": "HexCer 40:0;O2", "width": 1}, {"from": "Cer 40:1;O2", "to": "HexCer 40:1;O2", "width": 1}, {"from": "Cer 40:2;O2", "to": "HexCer 40:2;O2", "width": 1}, {"from": "Cer 41:2;O2", "to": "SM 41:2;O2", "width": 1}, {"from": "Cer 42:1;O2", "to": "HexCer 42:1;O2", "width": 1}, {"from": "Cer 42:1;O2", "to": "SM 42:1;O2", "width": 1}, {"from": "Cer 42:2;O2", "to": "HexCer 42:2;O2", "width": 1}, {"from": "Cer 42:2;O2", "to": "SM 42:2;O2", "width": 1}, {"from": "DG 35:0", "to": "PC 35:0", "width": 1}, {"from": "DG 35:0", "to": "PG 35:0", "width": 1}, {"from": "Hex2Cer 40:0;O2", "to": "HexCer 40:0;O2", "width": 1}, {"from": "Hex2Cer 40:1;O2", "to": "HexCer 40:1;O2", "width": 1}, {"from": "LPA 18:1", "to": "PA 32:1", "width": 1}, {"from": "LPA 18:1", "to": "PA 34:1", "width": 1}, {"from": "LPA 18:1", "to": "PA 36:1", "width": 1}, {"from": "LPA 18:1", "to": "PA 36:2", "width": 1}, {"from": "LPA 18:1", "to": "PA 36:4", "width": 1}, {"from": "LPA 18:1", "to": "PA 38:3", "width": 1}, {"from": "LPA 18:1", "to": "PA 38:4", "width": 1}, {"from": "LPA 18:1", "to": "PA 38:5", "width": 1}, {"from": "LPA 18:1", "to": "PA 40:4", "width": 1}, {"from": "LPA 18:1", "to": "PA 40:6", "width": 1}, {"from": "LPC 16:0", "to": "LPC 18:0", "width": 1}, {"from": "LPC 16:0", "to": "PC 30:0", "width": 1}, {"from": "LPC 16:0", "to": "PC 32:0", "width": 1}, {"from": "LPC 16:0", "to": "PC 32:1", "width": 1}, {"from": "LPC 16:0", "to": "PC 34:0", "width": 1}, {"from": "LPC 16:0", "to": "PC 34:1", "width": 1}, {"from": "LPC 16:0", "to": "PC 34:2", "width": 1}, {"from": "LPC 16:0", "to": "PC 36:1", "width": 1}, {"from": "LPC 16:0", "to": "PC 36:2", "width": 1}, {"from": "LPC 16:0", "to": "PC 36:3", "width": 1}, {"from": "LPC 16:0", "to": "PC 36:4", "width": 1}, {"from": "LPC 16:0", "to": "PC 38:1", "width": 1}, {"from": "LPC 16:0", "to": "PC 38:2", "width": 1}, {"from": "LPC 16:0", "to": "PC 38:4", "width": 1}, {"from": "LPC 16:0", "to": "PC 38:5", "width": 1}, {"from": "LPC 16:0", "to": "PC 38:6", "width": 1}, {"from": "LPC 16:0", "to": "PC O-32:0", "width": 1}, {"from": "LPC 18:0", "to": "PC 32:0", "width": 1}, {"from": "LPC 18:0", "to": "PC 34:0", "width": 1}, {"from": "LPC 18:0", "to": "PC 34:1", "width": 1}, {"from": "LPC 18:0", "to": "PC 35:0", "width": 1}, {"from": "LPC 18:0", "to": "PC 36:1", "width": 1}, {"from": "LPC 18:0", "to": "PC 36:2", "width": 1}, {"from": "LPC 18:0", "to": "PC 36:3", "width": 1}, {"from": "LPC 18:0", "to": "PC 38:1", "width": 1}, {"from": "LPC 18:0", "to": "PC 38:2", "width": 1}, {"from": "LPC 18:0", "to": "PC 38:4", "width": 1}, {"from": "LPC 18:0", "to": "PC 38:5", "width": 1}, {"from": "LPC 18:0", "to": "PC 40:1", "width": 1}, {"from": "LPC 18:0", "to": "PC 40:2", "width": 1}, {"from": "LPC 18:0", "to": "PC 40:4", "width": 1}, {"from": "LPC 18:0", "to": "PC 40:6", "width": 1}, {"from": "LPC 18:1", "to": "LPC 20:1", "width": 1}, {"from": "LPC 18:1", "to": "PC 32:1", "width": 1}, {"from": "LPC 18:1", "to": "PC 34:1", "width": 1}, {"from": "LPC 18:1", "to": "PC 34:2", "width": 1}, {"from": "LPC 18:1", "to": "PC 35:1", "width": 1}, {"from": "LPC 18:1", "to": "PC 36:1", "width": 1}, {"from": "LPC 18:1", "to": "PC 36:2", "width": 1}, {"from": "LPC 18:1", "to": "PC 36:3", "width": 1}, {"from": "LPC 18:1", "to": "PC 36:4", "width": 1}, {"from": "LPC 18:1", "to": "PC 38:1", "width": 1}, {"from": "LPC 18:1", "to": "PC 38:2", "width": 1}, {"from": "LPC 18:1", "to": "PC 38:4", "width": 1}, {"from": "LPC 18:1", "to": "PC 38:5", "width": 1}, {"from": "LPC 18:1", "to": "PC 38:6", "width": 1}, {"from": "LPC 18:1", "to": "PC 40:2", "width": 1}, {"from": "LPC 18:1", "to": "PC 40:4", "width": 1}, {"from": "LPC 18:1", "to": "PC 40:6", "width": 1}, {"from": "LPC 18:1", "to": "PC 40:7", "width": 1}, {"from": "LPC 18:1", "to": "PC 42:1", "width": 1}, {"from": "LPC 18:1", "to": "PC O-34:1", "width": 1}, {"from": "LPC 18:1", "to": "PC O-36:1", "width": 1}, {"from": "LPC 20:1", "to": "PC 34:1", "width": 1}, {"from": "LPC 20:1", "to": "PC 36:1", "width": 1}, {"from": "LPC 20:1", "to": "PC 36:2", "width": 1}, {"from": "LPC 20:1", "to": "PC 37:1", "width": 1}, {"from": "LPC 20:1", "to": "PC 38:1", "width": 1}, {"from": "LPC 20:1", "to": "PC 38:2", "width": 1}, {"from": "LPC 20:1", "to": "PC 38:4", "width": 1}, {"from": "LPC 20:1", "to": "PC 40:1", "width": 1}, {"from": "LPC 20:1", "to": "PC 40:2", "width": 1}, {"from": "LPC 20:1", "to": "PC 40:4", "width": 1}, {"from": "LPC 20:1", "to": "PC 40:6", "width": 1}, {"from": "LPC 20:1", "to": "PC O-36:1", "width": 1}, {"from": "LPC 20:4", "to": "PC 36:4", "width": 1}, {"from": "LPC 20:4", "to": "PC 38:4", "width": 1}, {"from": "LPC 20:4", "to": "PC 38:5", "width": 1}, {"from": "LPC 20:4", "to": "PC 38:6", "width": 1}, {"from": "LPC 20:4", "to": "PC 38:7", "width": 1}, {"from": "LPC 20:4", "to": "PC 40:4", "width": 1}, {"from": "LPC 20:4", "to": "PC 40:6", "width": 1}, {"from": "LPC 20:4", "to": "PC 40:7", "width": 1}, {"from": "LPC 22:6", "to": "PC 38:6", "width": 1}, {"from": "LPC 22:6", "to": "PC 38:7", "width": 1}, {"from": "LPC 22:6", "to": "PC 39:6", "width": 1}, {"from": "LPC 22:6", "to": "PC 40:6", "width": 1}, {"from": "LPC 22:6", "to": "PC 40:7", "width": 1}, {"from": "LPC O-16:0", "to": "PC O-32:0", "width": 1}, {"from": "LPC O-16:0", "to": "PC O-34:1", "width": 1}, {"from": "LPC O-16:0", "to": "PC O-36:1", "width": 1}, {"from": "LPC O-18:0", "to": "PC O-32:0", "width": 1}, {"from": "LPC O-18:0", "to": "PC O-34:1", "width": 1}, {"from": "LPC O-18:0", "to": "PC O-36:1", "width": 1}, {"from": "LPE 18:0", "to": "PE 34:0", "width": 1}, {"from": "LPE 18:0", "to": "PE 36:0", "width": 1}, {"from": "LPE 18:0", "to": "PE 36:1", "width": 1}, {"from": "LPE 18:0", "to": "PE 38:1", "width": 1}, {"from": "LPE 18:0", "to": "PE 38:4", "width": 1}, {"from": "LPE 18:0", "to": "PE 40:4", "width": 1}, {"from": "LPE 18:0", "to": "PE 40:6", "width": 1}, {"from": "LPE 18:1", "to": "PE 36:1", "width": 1}, {"from": "LPE 18:1", "to": "PE 38:1", "width": 1}, {"from": "LPE 18:1", "to": "PE 38:4", "width": 1}, {"from": "LPE 18:1", "to": "PE 38:6", "width": 1}, {"from": "LPE 18:1", "to": "PE 40:4", "width": 1}, {"from": "LPE 18:1", "to": "PE 40:6", "width": 1}, {"from": "LPE 18:1", "to": "PE 40:7", "width": 1}, {"from": "LPE 20:0", "to": "PE 34:0", "width": 1}, {"from": "LPE 20:0", "to": "PE 36:0", "width": 1}, {"from": "LPE 20:0", "to": "PE 36:1", "width": 1}, {"from": "LPE 20:0", "to": "PE 38:1", "width": 1}, {"from": "LPE 20:0", "to": "PE 40:4", "width": 1}, {"from": "LPE 20:0", "to": "PE 42:6", "width": 1}, {"from": "LPE 22:1", "to": "PE 36:1", "width": 1}, {"from": "LPE 22:1", "to": "PE 38:1", "width": 1}, {"from": "LPE 22:1", "to": "PE 40:4", "width": 1}, {"from": "LPE 22:1", "to": "PE 42:6", "width": 1}, {"from": "LPE 22:4", "to": "PE 38:4", "width": 1}, {"from": "LPE 22:4", "to": "PE 40:4", "width": 1}, {"from": "LPE 22:4", "to": "PE 40:6", "width": 1}, {"from": "LPE 22:4", "to": "PE 40:7", "width": 1}, {"from": "LPE 22:4", "to": "PE 42:6", "width": 1}, {"from": "LPE 22:4", "to": "PE 42:9", "width": 1}, {"from": "LPE 22:6", "to": "PE 38:6", "width": 1}, {"from": "LPE 22:6", "to": "PE 38:7", "width": 1}, {"from": "LPE 22:6", "to": "PE 40:6", "width": 1}, {"from": "LPE 22:6", "to": "PE 40:7", "width": 1}, {"from": "LPE 22:6", "to": "PE 42:6", "width": 1}, {"from": "LPE 22:6", "to": "PE 42:9", "width": 1}, {"from": "LPG 20:1", "to": "PG 34:1", "width": 1}, {"from": "LPG 20:1", "to": "PG 36:1", "width": 1}, {"from": "LPG 20:1", "to": "PG 36:2", "width": 1}, {"from": "LPG 20:1", "to": "PG 37:1", "width": 1}, {"from": "LPG 20:1", "to": "PG 38:1", "width": 1}, {"from": "LPG 20:1", "to": "PG 38:3", "width": 1}, {"from": "LPG 20:1", "to": "PG 38:4", "width": 1}, {"from": "LPG 20:1", "to": "PG 40:4", "width": 1}, {"from": "LPG 20:1", "to": "PG 40:5", "width": 1}, {"from": "LPG 20:1", "to": "PG 40:6", "width": 1}, {"from": "LPS 16:0", "to": "PS 32:1", "width": 1}, {"from": "LPS 16:0", "to": "PS 34:1", "width": 1}, {"from": "LPS 16:0", "to": "PS 36:0", "width": 1}, {"from": "LPS 16:0", "to": "PS 36:1", "width": 1}, {"from": "LPS 16:0", "to": "PS 36:2", "width": 1}, {"from": "LPS 16:0", "to": "PS 36:3", "width": 1}, {"from": "LPS 16:0", "to": "PS 36:4", "width": 1}, {"from": "LPS 16:0", "to": "PS 38:1", "width": 1}, {"from": "LPS 16:0", "to": "PS 38:5", "width": 1}, {"from": "PA 32:0", "to": "PC 32:0", "width": 1}, {"from": "PA 32:1", "to": "PC 32:1", "width": 1}, {"from": "PA 34:1", "to": "PC 34:1", "width": 1}, {"from": "PA 36:1", "to": "PC 36:1", "width": 1}, {"from": "PA 36:2", "to": "PC 36:2", "width": 1}, {"from": "PA 36:4", "to": "PC 36:4", "width": 1}, {"from": "PA 38:4", "to": "PC 38:4", "width": 1}, {"from": "PA 38:5", "to": "PC 38:5", "width": 1}, {"from": "PA 40:4", "to": "PC 40:4", "width": 1}, {"from": "PA 40:6", "to": "PC 40:6", "width": 1}, {"from": "PC 34:0", "to": "PE 34:0", "width": 1}, {"from": "PC 36:1", "to": "PE 36:1", "width": 1}, {"from": "PC 38:1", "to": "PE 38:1", "width": 1}, {"from": "PC 38:4", "to": "PE 38:4", "width": 1}, {"from": "PC 38:6", "to": "PE 38:6", "width": 1}, {"from": "PC 38:7", "to": "PE 38:7", "width": 1}, {"from": "PC 40:4", "to": "PE 40:4", "width": 1}, {"from": "PC 40:6", "to": "PE 40:6", "width": 1}, {"from": "PC 40:7", "to": "PE 40:7", "width": 1}, {"from": "PC O-36:1", "to": "PE O-36:1", "width": 1}, {"from": "PE 36:0", "to": "PS 36:0", "width": 1}, {"from": "PE 36:1", "to": "PS 36:1", "width": 1}, {"from": "PE 38:1", "to": "PS 38:1", "width": 1}, {"from": "PE 40:6", "to": "PS 40:6", "width": 1}, {"from": "PE 42:6", "to": "PS 42:6", "width": 1}, {"from": "PE 42:9", "to": "PS 42:9", "width": 1}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {
+    "configure": {
+        "enabled": true,
+        "filter": [
+            "physics"
+        ]
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": true,
+            "type": "dynamic"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+
+                  
+
+
+                  
+                  // if this network requires displaying the configure window,
+                  // put it in its div
+                  options.configure["container"] = document.getElementById("config");
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+                      network.on("stabilizationProgress", function(params) {
+                          document.getElementById('loadingBar').removeAttribute("style");
+                          var maxWidth = 496;
+                          var minWidth = 20;
+                          var widthFactor = params.iterations/params.total;
+                          var width = Math.max(minWidth,maxWidth * widthFactor);
+                          document.getElementById('bar').style.width = width + 'px';
+                          document.getElementById('text').innerHTML = Math.round(widthFactor*100) + '%';
+                      });
+                      network.once("stabilizationIterationsDone", function() {
+                          document.getElementById('text').innerHTML = '100%';
+                          document.getElementById('bar').style.width = '496px';
+                          document.getElementById('loadingBar').style.opacity = 0;
+                          // really clean the dom element
+                          setTimeout(function () {document.getElementById('loadingBar').style.display = 'none';}, 500);
+                      });
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    </body>
+</html>

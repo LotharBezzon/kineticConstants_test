@@ -169,14 +169,15 @@ if __name__ == "__main__":
 
     #produce_simulations(10000, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids, random_seed=12345)
 
-    os.makedirs('simulation/simulated_graph_dataset_only_steady_state', exist_ok=True)
-    db_root = 'simulation/simulated_graph_dataset_only_steady_state'
+    db_root = 'simulation/simulated_graph_dataset_only_steady_state_free_energies'
+    os.makedirs(db_root, exist_ok=True)
+
     dataset = SimulatedGraphDataset(
         root=db_root,
         random_seed=123,
         adj_matrix=adj_matrix,
         L=L,
-        n_samples=500,
+        n_samples=300,
         ks_per_sample=100,
         n_perturbations=20,
         chunk_size=10,

@@ -98,7 +98,7 @@ class SimpleGNN(nn.Module):
         self.node_predictor = mlp(hidden_channels, node_out_channels)
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 
-    def forward(self, x, edge_index, batch=None, return_embeddings=False):
+    def forward(self, x, edge_index, batch=None, return_embeddings=False, free_energies=False):
         #x = self.pos_encoder(x.unsqueeze(1)).squeeze(1)
         x = self.embed(x)
         g = global_mean_pool(x, batch)
@@ -110,6 +110,9 @@ class SimpleGNN(nn.Module):
         final_embedding = x + h
         node_preds = self.node_predictor(final_embedding)
         row, col = edge_index
+        if free_energies:
+            mask = row < col
+            row, col = row[mask], col[mask]
         edge_preds = self.edge_predictor(torch.cat([final_embedding[row], final_embedding[col]], dim=1))
 
         if return_embeddings:

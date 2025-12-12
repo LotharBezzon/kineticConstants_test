@@ -173,8 +173,10 @@ class Simulator:
         reax_mu = np.full(num_reactions, mean_barrier)
 
         self.free_energies = np.random.multivariate_normal(c_mu, c_cov_matrix, size=n_samples)
+        self.free_energies -= np.min(self.free_energies, axis=1, keepdims=True)  # set min to 0
 
         reaction_barriers = np.abs(np.random.multivariate_normal(reax_mu, reax_cov_matrix, size=n_samples))
+        self.reaction_barriers = reaction_barriers
         transition_free_energies = np.zeros((n_samples, num_nodes, num_nodes))
         big_adjacency = add_baths(symm_adjacency)
         idx = 0
@@ -186,10 +188,10 @@ class Simulator:
                     idx += 1
         self.kinetic_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], :symm_adjacency.shape[0]]) * symm_adjacency[np.newaxis, :, :]
         self.sparse_kinetic_constants = self.kinetic_constants[:, symm_adjacency > 0]
-        self.degradation_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:][transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:] > 0])  # from nodes to baths
-        self.degradation_constants = np.reshape(self.degradation_constants, (n_samples, symm_adjacency.shape[0]))
-        self.production_constants = np.exp(-transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]][transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]] > 0])  # from baths to nodes
+        self.production_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:][transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:] > 0])  # from nodes to baths
         self.production_constants = np.reshape(self.production_constants, (n_samples, symm_adjacency.shape[0]))
+        self.degradation_constants = np.exp(-transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]][transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]] > 0])  # from baths to nodes
+        self.degradation_constants = np.reshape(self.degradation_constants, (n_samples, symm_adjacency.shape[0]))
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.6 * np.random.random()
         self.log_kinetic_constants_noise = 0.4 * np.random.random()
@@ -263,7 +265,9 @@ class Simulator:
                 'L': self.L,
                 'concentration_noise': self.concentration_noise,
                 'log_kinetic_constants_noise': self.log_kinetic_constants_noise,
-                'dropout': self.dropout
+                'dropout': self.dropout,
+                'free_energies': self.free_energies[sample_idx],
+                'reaction_barriers': self.reaction_barriers[sample_idx]
             })
         return params_dicts
     
