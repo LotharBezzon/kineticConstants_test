@@ -177,7 +177,7 @@ if __name__ == "__main__":
         random_seed=123,
         adj_matrix=adj_matrix,
         L=L,
-        n_samples=300,
+        n_samples=200,
         ks_per_sample=100,
         n_perturbations=20,
         chunk_size=10,

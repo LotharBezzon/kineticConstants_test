@@ -176,16 +176,23 @@ class Simulator:
         self.free_energies -= np.min(self.free_energies, axis=1, keepdims=True)  # set min to 0
 
         reaction_barriers = np.abs(np.random.multivariate_normal(reax_mu, reax_cov_matrix, size=n_samples))
-        self.reaction_barriers = reaction_barriers
         transition_free_energies = np.zeros((n_samples, num_nodes, num_nodes))
         big_adjacency = add_baths(symm_adjacency)
+        self.deltaG = np.zeros((n_samples, num_nodes, num_nodes))
+        self.reaction_barriers = np.full((n_samples, num_nodes, num_nodes), np.inf)
+
         idx = 0
         for i in range(num_nodes):
             for j in range(i+1, num_nodes):
+                self.deltaG[:, i, j] = self.free_energies[:, j] - self.free_energies[:, i]
+                self.deltaG[:, j, i] = self.free_energies[:, i] - self.free_energies[:, j]
                 if big_adjacency[i, j] > 0:
-                    transition_free_energies[:, i, j] = np.maximum(self.free_energies[:, i], self.free_energies[:, j]) + reaction_barriers[:, idx] - self.free_energies[:, i]
-                    transition_free_energies[:, j, i] = np.maximum(self.free_energies[:, j], self.free_energies[:, i]) + reaction_barriers[:, idx] - self.free_energies[:, j]
+                    self.reaction_barriers[:, i, j] = reaction_barriers[:, idx]
+                    self.reaction_barriers[:, j, i] = reaction_barriers[:, idx]
+                    transition_free_energies[:, i, j] = np.maximum(self.free_energies[:, i], self.free_energies[:, j]) + self.reaction_barriers[:, i, j] - self.free_energies[:, i]
+                    transition_free_energies[:, j, i] = np.maximum(self.free_energies[:, j], self.free_energies[:, i]) + self.reaction_barriers[:, j, i] - self.free_energies[:, j]
                     idx += 1
+
         self.kinetic_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], :symm_adjacency.shape[0]]) * symm_adjacency[np.newaxis, :, :]
         self.sparse_kinetic_constants = self.kinetic_constants[:, symm_adjacency > 0]
         self.production_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:][transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:] > 0])  # from nodes to baths
@@ -195,6 +202,10 @@ class Simulator:
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.6 * np.random.random()
         self.log_kinetic_constants_noise = 0.4 * np.random.random()
+        self.sparse_deltaG = self.deltaG[:, :symm_adjacency.shape[0], :symm_adjacency.shape[0]][:, symm_adjacency > 0]
+        self.sparse_all_deltaG = self.deltaG[:, big_adjacency > 0]
+        self.sparse_reaction_barriers = self.reaction_barriers[:, :symm_adjacency.shape[0], :symm_adjacency.shape[0]][:, symm_adjacency > 0]
+        self.sparse_all_reaction_barriers = self.reaction_barriers[:, big_adjacency > 0]
     
     def graph_components(self):
         """Identifies connected components in the graph. Needed to avoid singular matrices during simulation."""
@@ -266,8 +277,11 @@ class Simulator:
                 'concentration_noise': self.concentration_noise,
                 'log_kinetic_constants_noise': self.log_kinetic_constants_noise,
                 'dropout': self.dropout,
-                'free_energies': self.free_energies[sample_idx],
-                'reaction_barriers': self.reaction_barriers[sample_idx]
+                'sparse_reaction_barriers': self.sparse_reaction_barriers[sample_idx],
+                'sparse_all_reaction_barriers': self.sparse_all_reaction_barriers[sample_idx],
+                'sparse_deltaG': self.sparse_deltaG[sample_idx],
+                'sparse_all_deltaG': self.sparse_all_deltaG[sample_idx],
+                'free_energies': self.free_energies[sample_idx]
             })
         return params_dicts
     
