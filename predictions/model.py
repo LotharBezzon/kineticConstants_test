@@ -99,17 +99,18 @@ class SimpleGNN(nn.Module):
         self.node_predictor = mlp(hidden_channels, node_out_channels)
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 
-    def forward(self, x, edge_index, batch=None, return_embeddings=False, free_energies=False, master_node=False):
+    def forward(self, x, edge_index, batch=None, return_embeddings=False, free_energies=False, add_baths=False):
         #x = self.pos_encoder(x.unsqueeze(1)).squeeze(1)
-        if master_node:
-            master_node_feat = torch.ones((1, x.size(1)), device=x.device)
-            x = torch.cat([x, master_node_feat], dim=0)
-            master_node_idx = x.size(0) - 1
-            master_edges = torch.tensor([[i, master_node_idx] for i in range(master_node_idx)] + 
-                                        [[master_node_idx, i] for i in range(master_node_idx)], dtype=torch.long, device=x.device).t()
-            edge_index = torch.cat([edge_index, master_edges], dim=1)
+        if add_baths:   # for each node add a bath node
+            baths_feat = torch.ones((x.size(0), x.size(1)), device=x.device)
+            baths_idxes = torch.arange(x.size(0), 2 * x.size(0), device=x.device)
+            x = torch.cat([x, baths_feat], dim=0)
+            
+            baths_edges = torch.tensor([[i, baths_idxes[i]] for i in range(baths_idxes.size(0))] + 
+                                        [[baths_idxes[i], i] for i in range(baths_idxes.size(0))], dtype=torch.long, device=x.device).t()
+            edge_index = torch.cat([edge_index, baths_edges], dim=1)
             if batch is not None:
-                batch = torch.cat([batch, torch.tensor([batch.max()+1], device=x.device)], dim=0)
+                batch = torch.cat([batch, torch.tensor([batch.max()+1]*baths_idxes.size(0), device=x.device)], dim=0)
         x = self.embed(x)
         g = global_mean_pool(x, batch)
         h = torch.cat([x, self.graph_encoder(g)[batch]], dim=1)

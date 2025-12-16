@@ -123,7 +123,7 @@ class Simulator:
 
         if L is None:
             L = np.random.randn(num_ks, rank)
-        cov_matrix = (L @ L.T + np.eye(num_ks)) * sigma**2 + np.random.randn(num_ks, num_ks) * 1e-3
+        cov_matrix = (L @ L.T + np.eye(num_ks)) * sigma**2
         mu = np.full(num_ks, mean)
 
         log_k = np.random.multivariate_normal(mu, cov_matrix, size=n_samples)
@@ -173,9 +173,9 @@ class Simulator:
         reax_mu = np.full(num_reactions, mean_barrier)
 
         self.free_energies = np.random.multivariate_normal(c_mu, c_cov_matrix, size=n_samples)
-        self.free_energies -= np.min(self.free_energies, axis=1, keepdims=True)  # set min to 0
+        self.free_energies -= np.max(self.free_energies, axis=1, keepdims=True)  # set max to 0
 
-        reaction_barriers = np.abs(np.random.multivariate_normal(reax_mu, reax_cov_matrix, size=n_samples))
+        reaction_barriers = np.abs(60 + 1*np.random.multivariate_normal(reax_mu, reax_cov_matrix, size=n_samples))
         transition_free_energies = np.zeros((n_samples, num_nodes, num_nodes))
         big_adjacency = add_baths(symm_adjacency)
         self.deltaG = np.zeros((n_samples, num_nodes, num_nodes))
@@ -193,7 +193,7 @@ class Simulator:
                     transition_free_energies[:, j, i] = np.maximum(self.free_energies[:, j], self.free_energies[:, i]) + self.reaction_barriers[:, j, i] - self.free_energies[:, j]
                     idx += 1
 
-        self.kinetic_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], :symm_adjacency.shape[0]]) * symm_adjacency[np.newaxis, :, :]
+        self.kinetic_constants = 10**13 * np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], :symm_adjacency.shape[0]] / 2.4) * symm_adjacency[np.newaxis, :, :]
         self.sparse_kinetic_constants = self.kinetic_constants[:, symm_adjacency > 0]
         self.production_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:][transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:] > 0])  # from nodes to baths
         self.production_constants = np.reshape(self.production_constants, (n_samples, symm_adjacency.shape[0]))
@@ -258,7 +258,7 @@ class Simulator:
         if 'dropout' in kwargs:
             self.dropout = kwargs.get('dropout')
 
-    def get_simulation_parameters(self):
+    def get_simulation_parameters(self, only_steady_state=False):
         """Get current simulation parameters.
         Returns:
             dict: Dictionary of current simulation parameters."""
@@ -268,21 +268,31 @@ class Simulator:
         
         params_dicts = []
         for sample_idx in range(self.kinetic_constants.shape[0]):
-            params_dicts.append({
-                'sparse_log_kinetic_constants': np.log(self.sparse_kinetic_constants[sample_idx]),
-                'kinetic_constants': self.kinetic_constants[sample_idx],
-                'production_constants': self.production_constants[sample_idx],
-                'degradation_constants': self.degradation_constants[sample_idx],
-                'L': self.L,
-                'concentration_noise': self.concentration_noise,
-                'log_kinetic_constants_noise': self.log_kinetic_constants_noise,
-                'dropout': self.dropout,
-                'sparse_reaction_barriers': self.sparse_reaction_barriers[sample_idx],
-                'sparse_all_reaction_barriers': self.sparse_all_reaction_barriers[sample_idx],
-                'sparse_deltaG': self.sparse_deltaG[sample_idx],
-                'sparse_all_deltaG': self.sparse_all_deltaG[sample_idx],
-                'free_energies': self.free_energies[sample_idx]
-            })
+            if only_steady_state:
+                params_dicts.append({
+                    'sparse_reaction_barriers': self.sparse_reaction_barriers[sample_idx],
+                    'sparse_all_reaction_barriers': self.sparse_all_reaction_barriers[sample_idx],
+                    'sparse_deltaG': self.sparse_deltaG[sample_idx],
+                    'sparse_all_deltaG': self.sparse_all_deltaG[sample_idx],
+                    'free_energies': self.free_energies[sample_idx],
+                    'sparse_log_kinetic_constants': np.log(self.sparse_kinetic_constants[sample_idx])
+                })
+            else:
+                params_dicts.append({
+                    'sparse_log_kinetic_constants': np.log(self.sparse_kinetic_constants[sample_idx]),
+                    'kinetic_constants': self.kinetic_constants[sample_idx],
+                    'production_constants': self.production_constants[sample_idx],
+                    'degradation_constants': self.degradation_constants[sample_idx],
+                    'L': self.L,
+                    'concentration_noise': self.concentration_noise,
+                    'log_kinetic_constants_noise': self.log_kinetic_constants_noise,
+                    'dropout': self.dropout,
+                    'sparse_reaction_barriers': self.sparse_reaction_barriers[sample_idx],
+                    'sparse_all_reaction_barriers': self.sparse_all_reaction_barriers[sample_idx],
+                    'sparse_deltaG': self.sparse_deltaG[sample_idx],
+                    'sparse_all_deltaG': self.sparse_all_deltaG[sample_idx],
+                    'free_energies': self.free_energies[sample_idx]
+                })
         return params_dicts
     
     def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[], track_reference=False):
@@ -505,6 +515,7 @@ if __name__ == "__main__":
     adj_matrix = np.array(adj_matrix_pd)
     symmetric_adj_matrix = (adj_matrix + adj_matrix.T) > 0
     adj_matrix = symmetric_adj_matrix.astype(int)
+    big_adj_matrix = add_baths(adj_matrix)
     adj_matrix_pd = pd.DataFrame(adj_matrix, index=all_lipids, columns=all_lipids)
     adj_matrix_pd.to_csv('simulation/adjacency_matrix.csv')
 
@@ -519,16 +530,19 @@ if __name__ == "__main__":
     graph = simulator.build_graph(adjacency_matrix=adj_matrix)
     #simulator.graph_info()
     simulator.sample_free_energies(mean=0, sigma=1.0, mean_barrier=1.0, random_seed=12, c_rank=5, reax_rank=5, n_samples=10)
+    simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
 
     nodes_to_track = [i for i in range(len(all_lipids))]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
-    simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
-    simulator.run_equilibration(track_concentrations=nodes_to_track)
-    simulated_data = simulator.run_noisy_simulation(steps=100, num_perturbations=10, track_concentrations=nodes_to_track)
+
+    print(simulator.concentrations[0])
+
+    simulated_data = simulator.run_noisy_simulation(steps=10, num_perturbations=10, track_concentrations=nodes_to_track)
+
 
     #mean_concentrations, std_concentrations = simulator.analyze_results()
 
-    correlation_matrix_simulated = np.corrcoef(simulated_data[:,0,:].T)
+    '''correlation_matrix_simulated = np.corrcoef(simulated_data[:,0,:].T)
     correlation_df = pd.DataFrame(correlation_matrix_simulated, index=all_lipids, columns=all_lipids)
     sns.clustermap(correlation_df, cmap='coolwarm', cbar=True, vmin=-1, vmax=1, annot=False)
     plt.tight_layout()
@@ -557,4 +571,4 @@ if __name__ == "__main__":
     # Count how many components are effectively non-zero (above machine noise)
     # A common threshold for numerical noise is 1e-10
     effective_rank = np.sum(eigenvalues > 1e-2)
-    print(f"PCA estimates the rank is: {effective_rank}")
+    print(f"PCA estimates the rank is: {effective_rank}")'''

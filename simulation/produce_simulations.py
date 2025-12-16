@@ -61,7 +61,7 @@ def produce_simulations(n_samples, ks_per_sample, n_timesteps, n_perturbations=2
                 output.append(row)
         #output.append({'simulation_index': np.full(n_timesteps, i, dtype=int), 'timestep': np.arange(n_timesteps), **{col: simulator.simulated_data[:, idx] for idx, col in enumerate(columns)}})
 
-def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100, adj_matrix=None, n_perturbations=20, random_seed=42, L=None, only_steady_state=False, **kwargs):
+def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100, adj_matrix=None, n_perturbations=20, random_seed=42, L=None, only_steady_state=False, add_baths=False, **kwargs):
     """Produce simulations given the number of set of kinetic constants to sample and timesteps.
 
     Args:
@@ -94,19 +94,29 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
             data = Data()
             if only_steady_state:
                 data.x = torch.tensor(simulator.concentrations[n, :].T, dtype=torch.float32).unsqueeze(-1)
+                if add_baths:
+                    baths_feat = torch.ones((data.x.size(0), data.x.size(1)), device=data.x.device)
+                    data.x = torch.cat([torch.stack([data.x, torch.zeros_like(data.x)], dim=1), torch.stack([baths_feat, torch.ones_like(baths_feat)], dim=1)], dim=0).squeeze(-1)
             else:
                 data.x = torch.tensor(simulator.simulated_data[:, n, :].T, dtype=torch.float32)
+
             data.edge_index = torch.tensor(np.vstack(np.nonzero(adj_matrix)), dtype=torch.long)
-            data.parameters = simulator.get_simulation_parameters()[n]
+            if add_baths:
+                baths_idxes = torch.arange(data.x.size(0) // 2, data.x.size(0), device=data.x.device)
+                baths_edges = torch.tensor([[i, baths_idxes[i]] for i in range(baths_idxes.size(0))] + 
+                                            [[baths_idxes[i], i] for i in range(baths_idxes.size(0))], dtype=torch.long, device=data.x.device).t()
+                data.edge_index = torch.cat([data.edge_index, baths_edges], dim=1)
+            data.parameters = simulator.get_simulation_parameters(only_steady_state=only_steady_state)[n]
             data_list.append(data)
 
     return data_list
         
 
 class SimulatedGraphDataset(OnDiskDataset):
-    def __init__(self, root, transform=None, pre_filter=None, random_seed=42, only_steady_state=False, adj_matrix=None, L=None, n_samples=10000, ks_per_sample=100, n_perturbations=20, chunk_size=1000, n_timesteps=1000):
+    def __init__(self, root, transform=None, pre_filter=None, random_seed=42, only_steady_state=False, add_baths=False, adj_matrix=None, L=None, n_samples=10000, ks_per_sample=100, n_perturbations=20, chunk_size=1000, n_timesteps=1000):
         self.random_seed = random_seed
         self.only_steady_state = only_steady_state
+        self.add_baths = add_baths
         self.adj_matrix = adj_matrix
         self.L = L
         self.n_samples = n_samples
@@ -141,7 +151,8 @@ class SimulatedGraphDataset(OnDiskDataset):
                 random_seed=random_seeds[chunk_idx],
                 adj_matrix=self.adj_matrix,
                 L=self.L,
-                only_steady_state=self.only_steady_state
+                only_steady_state=self.only_steady_state,
+                add_baths=self.add_baths
             )
             if self.pre_filter is not None:
                 data_list = [data for data in data_list if self.pre_filter(data)]
@@ -169,7 +180,7 @@ if __name__ == "__main__":
 
     #produce_simulations(10000, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids, random_seed=12345)
 
-    db_root = 'simulation/simulated_graph_dataset_only_steady_state_free_energies'
+    db_root = 'simulation/simulated_graph_small_dataset_only_steady_state_free_energies'
     os.makedirs(db_root, exist_ok=True)
 
     dataset = SimulatedGraphDataset(
@@ -177,10 +188,11 @@ if __name__ == "__main__":
         random_seed=123,
         adj_matrix=adj_matrix,
         L=L,
-        n_samples=200,
+        n_samples=50,
         ks_per_sample=100,
         n_perturbations=20,
         chunk_size=10,
         n_timesteps=100,
-        only_steady_state=True
+        only_steady_state=True,
+        add_baths=True
     )
