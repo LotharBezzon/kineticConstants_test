@@ -40,6 +40,15 @@ def find_cycles_for_edge(i, j, adjacency_matrix, max_cycle_length=6):
 
     return cycles
 
+def get_biggest_submatrix(adj_matrix):
+    adj_matrix = np.array(adj_matrix)
+    G = nx.from_numpy_array(adj_matrix)
+    
+    largest_nodes = list(max(nx.connected_components(G), key=len))
+    
+    sub_matrix = adj_matrix[np.ix_(largest_nodes, largest_nodes)]
+    return sub_matrix, largest_nodes
+
 
 class Simulator:
     """A simulator to produce data to train a kinetic constants estimator.
@@ -173,9 +182,7 @@ class Simulator:
         reax_mu = np.full(num_reactions, mean_barrier)
 
         self.free_energies = np.random.multivariate_normal(c_mu, c_cov_matrix, size=n_samples)
-        #self.free_energies -= np.mean(self.free_energies, axis=1, keepdims=True)  # set mean to 0
-        self.free_energies[:, :] -= self.free_energies[:, 25][:, np.newaxis]  # set node 25 to 0
-
+        self.free_energies -= np.mean(self.free_energies, axis=1, keepdims=True)  # set mean to 0
 
         reaction_barriers = np.abs(60 + 1*np.random.multivariate_normal(reax_mu, reax_cov_matrix, size=n_samples))
         transition_free_energies = np.zeros((n_samples, num_nodes, num_nodes))
@@ -520,6 +527,7 @@ if __name__ == "__main__":
     big_adj_matrix = add_baths(adj_matrix)
     adj_matrix_pd = pd.DataFrame(adj_matrix, index=all_lipids, columns=all_lipids)
     adj_matrix_pd.to_csv('simulation/adjacency_matrix.csv')
+    connected_adj_matrix, nodes_in_biggest = get_biggest_submatrix(adj_matrix)
 
     correlation_matrix_partial = pd.read_csv('simulation/correlation_matrix.csv', index_col=0)
     correlation_matrix = pd.DataFrame(np.eye(len(all_lipids)), index=all_lipids, columns=all_lipids)
@@ -529,28 +537,19 @@ if __name__ == "__main__":
     L = np.linalg.cholesky(correlation_matrix)
 
     simulator = Simulator(random_seed=42)
-    graph = simulator.build_graph(adjacency_matrix=adj_matrix)
+    print(connected_adj_matrix.shape)
+    graph = simulator.build_graph(adjacency_matrix=connected_adj_matrix)
     #simulator.graph_info()
     simulator.sample_free_energies(mean=0, sigma=1.0, mean_barrier=1.0, random_seed=12, c_rank=5, reax_rank=5, n_samples=10)
     simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
 
-    nodes_to_track = [i for i in range(len(all_lipids))]
+    nodes_to_track = [i for i in range(len(all_lipids))][:connected_adj_matrix.shape[0]]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
 
     #print(simulator.concentrations[0])
 
     equilibrium_constants  = simulator.kinetic_constants[0] / (simulator.kinetic_constants[0].T + 1e-10)
 
-    fe = simulator.get_simulation_parameters(only_steady_state=True)[0]['free_energies']
-    dG = fe - fe[:, np.newaxis]
-    dG = dG[big_adj_matrix > 0].reshape(-1)
-    dG_true = simulator.get_simulation_parameters(only_steady_state=True)[0]['sparse_all_deltaG']
-    plt.scatter(dG, dG_true, alpha=0.5)
-    plt.xlabel('Calculated ΔG from Free Energies')
-    plt.ylabel('ΔG from Simulation')
-    plt.title('Comparison of ΔG Values')
-    plt.show()
-    
 
     #simulated_data = simulator.run_noisy_simulation(steps=10, num_perturbations=10, track_concentrations=nodes_to_track)
 

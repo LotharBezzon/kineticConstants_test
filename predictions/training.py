@@ -22,12 +22,12 @@ if __name__ == "__main__":
     from classification.classifier import *
     from model import *
     from simulation.produce_simulations import SimulatedGraphDataset
-    from simulation.simulator import add_baths
+    from simulation.simulator import add_baths, get_biggest_submatrix
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load dataset
-    db_path = 'simulation/simulated_graph_small_dataset_only_steady_state_free_energies'
+    db_path = 'simulation/simulated_graph_dataset_only_steady_state_free_energies'
     dataset = SimulatedGraphDataset(root=db_path)
     #dataset = dataset[:10000]
     torch.manual_seed(42)
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     # Initialize model, loss function, and optimizer
     #model = SimpleGNN(in_channels=2000, hidden_channels=256, node_out_channels=4, edge_out_channels=2).to(device)
     #model_steady_state = SimpleGNN(in_channels=1, hidden_channels=64, node_out_channels=4, edge_out_channels=2).to(device)
-    model = SimpleGNN(in_channels=3, hidden_channels=64, node_out_channels=1, edge_out_channels=1).to(device)
+    model = SimpleGNN(in_channels=2, hidden_channels=64, node_out_channels=1, edge_out_channels=1).to(device)
     criterion = nn.KLDivLoss(reduction='batchmean')
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.8)
@@ -60,6 +60,7 @@ if __name__ == "__main__":
     adj_matrix = np.array(adj_matrix_df)
     symmetric_adj_matrix = (adj_matrix + adj_matrix.T) > 0
     adj_matrix = symmetric_adj_matrix.astype(int)
+    adj_matrix, _ = get_biggest_submatrix(adj_matrix)
     correlation_matrix_partial = pd.read_csv('simulation/correlation_matrix.csv', index_col=0)
     correlation_matrix = pd.DataFrame(np.eye(len(all_lipids)), index=all_lipids, columns=all_lipids)
     L = np.linalg.cholesky(correlation_matrix.values)
@@ -72,12 +73,12 @@ if __name__ == "__main__":
     epochs = 10  # Number of training epochs
     model_type = 'free_energies'  # 'kinetic_constants' or 'free_energies'
 
-    '''for graph in train_dataset:
+    '''for graph in train_dataset[1:]:
         print(graph)
         print(graph.x.shape)
         print(graph.edge_index.shape)
-        for edge in graph.edge_index.t():
-            print(edge)
+        print(graph.parameters['sparse_deltaG'])
+        print(graph.parameters['sparse_all_deltaG'])
         break'''
 
     for epoch in range(epochs):
@@ -89,21 +90,20 @@ if __name__ == "__main__":
             
             # Forward pass
             if model_type == 'free_energies':
-                node_out, edge_out = model(batch.x, batch.edge_index, batch.batch, free_energies=False, add_baths=False)
-                free_energies = node_out.squeeze(-1)
-                barrier_heights = edge_out.squeeze(-1)
-                
-                # Faster: avoid repeated numpy->tensor conversion; use pre-computed mask
                 free_energy_true = torch.from_numpy(np.array(batch.parameters['free_energies'])).float().to(device)
                 free_energy_true = free_energy_true.reshape(-1)
                 deltaG_true = torch.from_numpy(np.array(batch.parameters['sparse_all_deltaG'])).float().to(device).reshape(-1)
-                deltaG = free_energies - free_energies[:, None]
-                deltaG = deltaG[torch.kron(torch.eye(batch.num_graphs), torch.tensor(big_adj_matrix)).bool()]
+                row, col = batch.edge_index
 
-                # Compute loss
-                loss_fe = mse_loss(free_energies, free_energy_true)
+                node_out, edge_out = model(batch.x, batch.edge_index, batch.batch, free_energies=False, add_baths=False)
+                free_energies = node_out.squeeze(-1)
+                #energy_barriers = edge_out.squeeze(-1)
+
+                deltaG = free_energies[col] - free_energies[row]
+                
+                #loss_fe = mse_loss(free_energies, free_energy_true)
                 loss_deltaG = mse_loss(deltaG, deltaG_true)
-                loss = loss_deltaG + loss_fe
+                loss = loss_deltaG# + loss_fe
 
             else:  # 'kinetic_constants'
                 node_out, edge_out = model(batch.x, batch.edge_index, batch.batch)
@@ -119,7 +119,7 @@ if __name__ == "__main__":
                 loss_prod = mse_loss(k_prod.squeeze(-1), k_prod_true)
                 loss_deg = mse_loss(k_deg.squeeze(-1), k_deg_true)
                 loss = loss_k + loss_prod + loss_deg
-
+            
             loss.backward()
             optimizer.step()
             scheduler.step()

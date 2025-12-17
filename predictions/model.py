@@ -96,7 +96,7 @@ class SimpleGNN(nn.Module):
         for _ in range(num_layers - 1):
             self.convs.append(GCNConv(2*hidden_channels, 2*hidden_channels))
         self.convs.append(GCNConv(2*hidden_channels, hidden_channels))
-        self.node_predictor = mlp(hidden_channels, node_out_channels, bias=False)
+        self.node_predictor = mlp(hidden_channels, node_out_channels)
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 
     def forward(self, x, edge_index, batch=None, return_embeddings=False, free_energies=False, add_baths=False):
@@ -125,6 +125,7 @@ class SimpleGNN(nn.Module):
             mask = row < col
             row, col = row[mask], col[mask]
         edge_preds = self.edge_predictor(torch.cat([final_embedding[row], final_embedding[col]], dim=1))
+        edge_preds -= edge_preds.mean()  # Centering the predictions
 
         if return_embeddings:
             return node_preds, edge_preds, final_embedding
