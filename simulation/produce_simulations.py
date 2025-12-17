@@ -96,7 +96,7 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
                 data.x = torch.tensor(simulator.concentrations[n, :].T, dtype=torch.float32).unsqueeze(-1)
                 if add_baths:
                     baths_feat = torch.ones((data.x.size(0), data.x.size(1)), device=data.x.device)
-                    data.x = torch.cat([torch.stack([data.x, torch.zeros_like(data.x)], dim=1), torch.stack([baths_feat, torch.ones_like(baths_feat)], dim=1)], dim=0).squeeze(-1)
+                    data.x = torch.cat([torch.stack([data.x, torch.zeros_like(data.x), torch.arange(data.x.size(0), dtype=torch.float32, device=data.x.device).unsqueeze(-1)], dim=1), torch.stack([baths_feat, torch.ones_like(baths_feat), torch.arange(baths_feat.size(0), dtype=torch.float32, device=baths_feat.device).unsqueeze(-1) + data.x.size(0)], dim=1)], dim=0).squeeze(-1)
             else:
                 data.x = torch.tensor(simulator.simulated_data[:, n, :].T, dtype=torch.float32)
 
@@ -188,7 +188,7 @@ if __name__ == "__main__":
         random_seed=123,
         adj_matrix=adj_matrix,
         L=L,
-        n_samples=50,
+        n_samples=100,
         ks_per_sample=100,
         n_perturbations=20,
         chunk_size=10,

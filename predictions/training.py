@@ -44,7 +44,7 @@ if __name__ == "__main__":
     # Initialize model, loss function, and optimizer
     #model = SimpleGNN(in_channels=2000, hidden_channels=256, node_out_channels=4, edge_out_channels=2).to(device)
     #model_steady_state = SimpleGNN(in_channels=1, hidden_channels=64, node_out_channels=4, edge_out_channels=2).to(device)
-    model = SimpleGNN(in_channels=2, hidden_channels=64, node_out_channels=1, edge_out_channels=1).to(device)
+    model = SimpleGNN(in_channels=3, hidden_channels=64, node_out_channels=1, edge_out_channels=1).to(device)
     criterion = nn.KLDivLoss(reduction='batchmean')
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.8)
@@ -96,7 +96,7 @@ if __name__ == "__main__":
                 # Faster: avoid repeated numpy->tensor conversion; use pre-computed mask
                 free_energy_true = torch.from_numpy(np.array(batch.parameters['free_energies'])).float().to(device)
                 free_energy_true = free_energy_true.reshape(-1)
-                deltaG_true = - torch.from_numpy(np.array(batch.parameters['sparse_all_deltaG'])).float().to(device).reshape(-1)
+                deltaG_true = torch.from_numpy(np.array(batch.parameters['sparse_all_deltaG'])).float().to(device).reshape(-1)
                 deltaG = free_energies - free_energies[:, None]
                 deltaG = deltaG[torch.kron(torch.eye(batch.num_graphs), torch.tensor(big_adj_matrix)).bool()]
 

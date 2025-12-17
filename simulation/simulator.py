@@ -173,7 +173,9 @@ class Simulator:
         reax_mu = np.full(num_reactions, mean_barrier)
 
         self.free_energies = np.random.multivariate_normal(c_mu, c_cov_matrix, size=n_samples)
-        self.free_energies -= np.max(self.free_energies, axis=1, keepdims=True)  # set max to 0
+        #self.free_energies -= np.mean(self.free_energies, axis=1, keepdims=True)  # set mean to 0
+        self.free_energies[:, :] -= self.free_energies[:, 25][:, np.newaxis]  # set node 25 to 0
+
 
         reaction_barriers = np.abs(60 + 1*np.random.multivariate_normal(reax_mu, reax_cov_matrix, size=n_samples))
         transition_free_energies = np.zeros((n_samples, num_nodes, num_nodes))
@@ -535,9 +537,22 @@ if __name__ == "__main__":
     nodes_to_track = [i for i in range(len(all_lipids))]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
 
-    print(simulator.concentrations[0])
+    #print(simulator.concentrations[0])
 
-    simulated_data = simulator.run_noisy_simulation(steps=10, num_perturbations=10, track_concentrations=nodes_to_track)
+    equilibrium_constants  = simulator.kinetic_constants[0] / (simulator.kinetic_constants[0].T + 1e-10)
+
+    fe = simulator.get_simulation_parameters(only_steady_state=True)[0]['free_energies']
+    dG = fe - fe[:, np.newaxis]
+    dG = dG[big_adj_matrix > 0].reshape(-1)
+    dG_true = simulator.get_simulation_parameters(only_steady_state=True)[0]['sparse_all_deltaG']
+    plt.scatter(dG, dG_true, alpha=0.5)
+    plt.xlabel('Calculated ΔG from Free Energies')
+    plt.ylabel('ΔG from Simulation')
+    plt.title('Comparison of ΔG Values')
+    plt.show()
+    
+
+    #simulated_data = simulator.run_noisy_simulation(steps=10, num_perturbations=10, track_concentrations=nodes_to_track)
 
 
     #mean_concentrations, std_concentrations = simulator.analyze_results()
