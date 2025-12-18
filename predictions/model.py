@@ -96,7 +96,7 @@ class SimpleGNN(nn.Module):
         for _ in range(num_layers - 1):
             self.convs.append(GCNConv(2*hidden_channels, 2*hidden_channels))
         self.convs.append(GCNConv(2*hidden_channels, hidden_channels))
-        self.node_predictor = mlp(hidden_channels, node_out_channels)
+        self.node_predictor = mlp(hidden_channels, node_out_channels, bias=False)
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 
     def forward(self, x, edge_index, batch=None, return_embeddings=False, free_energies=False, add_baths=False):

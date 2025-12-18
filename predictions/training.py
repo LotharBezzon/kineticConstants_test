@@ -27,9 +27,9 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load dataset
-    db_path = 'simulation/simulated_graph_dataset_only_steady_state_free_energies'
+    db_path = 'simulation/simulated_graph_small_dataset_only_steady_state_free_energies'
     dataset = SimulatedGraphDataset(root=db_path)
-    #dataset = dataset[:10000]
+    dataset = dataset[:10000]
     torch.manual_seed(42)
     dataset = dataset.shuffle()  # Shuffle the dataset
     print(f'Dataset size: {len(dataset)} graphs')
@@ -74,11 +74,10 @@ if __name__ == "__main__":
     model_type = 'free_energies'  # 'kinetic_constants' or 'free_energies'
 
     '''for graph in train_dataset[1:]:
-        print(graph)
-        print(graph.x.shape)
-        print(graph.edge_index.shape)
-        print(graph.parameters['sparse_deltaG'])
-        print(graph.parameters['sparse_all_deltaG'])
+        fe_true = np.array(graph.parameters['free_energies'])
+        row, col = graph.edge_index
+        print(graph.x)
+        #print(np.array(graph.parameters['sparse_all_deltaG']))# - (fe_true[col.cpu().numpy()] - fe_true[row.cpu().numpy()]))
         break'''
 
     for epoch in range(epochs):
@@ -86,6 +85,7 @@ if __name__ == "__main__":
         total_loss = 0.0
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
             batch = batch.to(device)
+            #batch.x[:, 0] = torch.log(batch.x[:, 0] + 1e-10)  # Log-transform concentrations
             optimizer.zero_grad()
             
             # Forward pass
@@ -97,13 +97,13 @@ if __name__ == "__main__":
 
                 node_out, edge_out = model(batch.x, batch.edge_index, batch.batch, free_energies=False, add_baths=False)
                 free_energies = node_out.squeeze(-1)
-                #energy_barriers = edge_out.squeeze(-1)
+                energy_barriers = edge_out.squeeze(-1)
 
                 deltaG = free_energies[col] - free_energies[row]
                 
-                #loss_fe = mse_loss(free_energies, free_energy_true)
+                loss_fe = mse_loss(free_energies, free_energy_true)
                 loss_deltaG = mse_loss(deltaG, deltaG_true)
-                loss = loss_deltaG# + loss_fe
+                loss = loss_deltaG + loss_fe
 
             else:  # 'kinetic_constants'
                 node_out, edge_out = model(batch.x, batch.edge_index, batch.batch)

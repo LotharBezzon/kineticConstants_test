@@ -43,7 +43,10 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
             if only_steady_state:
                 data.x = torch.tensor(simulator.concentrations[n, :].T, dtype=torch.float32).unsqueeze(-1)
                 if add_baths:
-                    baths_feat = torch.ones((data.x.size(0), data.x.size(1)), device=data.x.device)
+                    #baths_feat = torch.ones((data.x.size(0), data.x.size(1)), device=data.x.device)
+                    #baths_feat = data.x.clone()
+                    baths_feat = torch.tensor(simulator.get_simulation_parameters(only_steady_state=only_steady_state)[n]['free_energies'][data.x.size(0):], dtype=torch.float32).unsqueeze(-1)
+                    #print(baths_feat.shape, data.x.shape)
                     data.x = torch.cat([torch.stack([data.x, torch.zeros_like(data.x)], dim=1), torch.stack([baths_feat, torch.ones_like(baths_feat)], dim=1)], dim=0).squeeze(-1)
             else:
                 data.x = torch.tensor(simulator.simulated_data[:, n, :].T, dtype=torch.float32)
@@ -135,7 +138,7 @@ if __name__ == "__main__":
 
     #produce_simulations(10000, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids, random_seed=12345)
 
-    db_root = 'simulation/simulated_graph_big_dataset_only_steady_state_free_energies'
+    db_root = 'simulation/simulated_graph_small_dataset_only_steady_state_free_energies'
     os.makedirs(db_root, exist_ok=True)
 
     dataset = SimulatedGraphDataset(
@@ -143,7 +146,7 @@ if __name__ == "__main__":
         random_seed=123,
         adj_matrix=adj_matrix,
         L=L,
-        n_samples=1000,
+        n_samples=100,
         ks_per_sample=100,
         n_perturbations=20,
         chunk_size=10,

@@ -204,9 +204,9 @@ class Simulator:
 
         self.kinetic_constants = 10**13 * np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], :symm_adjacency.shape[0]] / 2.4) * symm_adjacency[np.newaxis, :, :]
         self.sparse_kinetic_constants = self.kinetic_constants[:, symm_adjacency > 0]
-        self.production_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:][transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:] > 0])  # from nodes to baths
+        self.production_constants = 10**13 *np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:][transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:] > 0] / 2.4)  # from nodes to baths
         self.production_constants = np.reshape(self.production_constants, (n_samples, symm_adjacency.shape[0]))
-        self.degradation_constants = np.exp(-transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]][transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]] > 0])  # from baths to nodes
+        self.degradation_constants = 10**13 *np.exp(-transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]][transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]] > 0] / 2.4)  # from baths to nodes
         self.degradation_constants = np.reshape(self.degradation_constants, (n_samples, symm_adjacency.shape[0]))
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.6 * np.random.random()
@@ -537,7 +537,6 @@ if __name__ == "__main__":
     L = np.linalg.cholesky(correlation_matrix)
 
     simulator = Simulator(random_seed=42)
-    print(connected_adj_matrix.shape)
     graph = simulator.build_graph(adjacency_matrix=connected_adj_matrix)
     #simulator.graph_info()
     simulator.sample_free_energies(mean=0, sigma=1.0, mean_barrier=1.0, random_seed=12, c_rank=5, reax_rank=5, n_samples=10)
@@ -549,6 +548,11 @@ if __name__ == "__main__":
     #print(simulator.concentrations[0])
 
     equilibrium_constants  = simulator.kinetic_constants[0] / (simulator.kinetic_constants[0].T + 1e-10)
+
+    print(simulator.degradation_constants[0])
+    print(simulator.production_constants[0])
+    print(simulator.kinetic_constants[0][connected_adj_matrix > 0])
+    print(simulator.concentrations[0] - simulator.production_constants[0] / (simulator.degradation_constants[0] + 1e-10))
 
 
     #simulated_data = simulator.run_noisy_simulation(steps=10, num_perturbations=10, track_concentrations=nodes_to_track)
