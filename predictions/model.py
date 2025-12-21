@@ -88,7 +88,6 @@ class SimpleGNN(nn.Module):
     """
     def __init__(self, in_channels, hidden_channels, node_out_channels, edge_out_channels, num_layers=2):
         super(SimpleGNN, self).__init__()
-        #self.pos_encoder = LearnablePositionalEncoding(d_model=in_channels, max_len=1000)
         self.in_channels = in_channels
         self.embed = mlp(in_channels, hidden_channels, hidden_dim=2*hidden_channels)
         self.graph_encoder = mlp(hidden_channels, hidden_channels, hidden_dim=2*hidden_channels)
@@ -100,8 +99,7 @@ class SimpleGNN(nn.Module):
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 
     def forward(self, x, edge_index, batch=None, return_embeddings=False, free_energies=False, add_baths=False):
-        #x = self.pos_encoder(x.unsqueeze(1)).squeeze(1)
-        if add_baths:   # for each node add a bath node
+        '''if add_baths:   # for each node add a bath node
             baths_feat = torch.ones((x.size(0), x.size(1)), device=x.device)
             baths_idxes = torch.arange(x.size(0), 2 * x.size(0), device=x.device)
             x = torch.cat([x, baths_feat], dim=0)
@@ -110,7 +108,7 @@ class SimpleGNN(nn.Module):
                                         [[baths_idxes[i], i] for i in range(baths_idxes.size(0))], dtype=torch.long, device=x.device).t()
             edge_index = torch.cat([edge_index, baths_edges], dim=1)
             if batch is not None:
-                batch = torch.cat([batch, torch.tensor([batch.max()+1]*baths_idxes.size(0), device=x.device)], dim=0)
+                batch = torch.cat([batch, torch.tensor([batch.max()+1]*baths_idxes.size(0), device=x.device)], dim=0)'''
         x = self.embed(x)
         g = global_mean_pool(x, batch)
         h = torch.cat([x, self.graph_encoder(g)[batch]], dim=1)
