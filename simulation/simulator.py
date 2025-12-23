@@ -284,7 +284,8 @@ class Simulator:
                     'sparse_deltaG': self.sparse_deltaG[sample_idx],
                     'sparse_all_deltaG': self.sparse_all_deltaG[sample_idx],
                     'free_energies': self.free_energies[sample_idx],
-                    'sparse_log_kinetic_constants': np.log(self.sparse_kinetic_constants[sample_idx])
+                    'sparse_log_kinetic_constants': np.log(self.sparse_kinetic_constants[sample_idx]),
+                    'dynamics': self.dynamics if hasattr(self, 'dynamics') else None
                 })
             else:
                 params_dicts.append({
@@ -304,7 +305,7 @@ class Simulator:
                 })
         return params_dicts
     
-    def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[], track_reference=False):
+    def run_equilibration(self, initial_concentrations=None, convergence_threshold=1e-4, max_iterations=10000, time_step=None, track_concentrations=[], track_reference=False, dynamics=False):
         """Run a temporal simulation until steady state is reached.
         Args:
             initial_concentrations (np.ndarray): Initial concentrations of the nodes.
@@ -328,10 +329,18 @@ class Simulator:
         tracked_concentrations = [[] for node in track_concentrations]
         tracked_reference = [[] for node in track_concentrations] if track_reference else None
 
+        self.dynamics = []
+        if dynamics:
+            time_indices = (np.logspace(0, 2.2, num=20, dtype=int) - 1).tolist()
+
         k_out = np.einsum('bij->bi', self.kinetic_constants)
         for iteration in range(max_iterations):
             if iteration == max_iterations - 1:
                 raise Exception("Simulation did not converge within the maximum number of iterations.")
+
+            if dynamics:
+                if iteration in time_indices:
+                    self.dynamics.append(concentrations.copy())
             
             production = np.einsum('bji,bj->bi', self.kinetic_constants, concentrations) + self.production_constants
             degradation = (k_out + self.degradation_constants) * concentrations
@@ -358,6 +367,9 @@ class Simulator:
             if np.max(np.abs(new_concentrations - concentrations) / (concentrations + 1e-10)) < convergence_threshold:
                 break
             concentrations = new_concentrations
+
+        if dynamics:
+            self.dynamics = np.array(self.dynamics)
 
         self.concentrations = concentrations
 

@@ -4,7 +4,6 @@ from torch_geometric.utils import to_dense_adj, dense_to_sparse
 import torch_geometric.transforms as T
 import torch
 import torch.nn as nn
-import lmdb
 import pickle
 from tqdm import tqdm
 import numpy as np
@@ -19,7 +18,6 @@ if __name__ == "__main__":
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from classification.classifier import *
     from model import *
     from simulation.produce_simulations import SimulatedGraphDataset
     from simulation.simulator import add_baths, get_biggest_submatrix
@@ -27,7 +25,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load dataset
-    db_path = 'simulation/simulated_graph_small_dataset_only_steady_state_free_energies'
+    db_path = 'simulation/simulated_graph_small_dataset_only_steady_state_free_energies_dynamics'
     dataset = SimulatedGraphDataset(root=db_path)
     dataset = dataset[:10000]
     torch.manual_seed(42)
@@ -73,14 +71,15 @@ if __name__ == "__main__":
     epochs = 10  # Number of training epochs
     model_type = 'free_energies'  # 'kinetic_constants' or 'free_energies'
 
-    '''for graph in train_dataset[1:]:
+    for graph in train_dataset[1:]:
         fe_true = np.array(graph.parameters['free_energies'])
         row, col = graph.edge_index
         print(graph.x)
         #print(np.array(graph.parameters['sparse_all_deltaG']))# - (fe_true[col.cpu().numpy()] - fe_true[row.cpu().numpy()]))
-        break'''
+        break
 
     for epoch in range(epochs):
+        break
         model.train()
         total_loss = 0.0
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):

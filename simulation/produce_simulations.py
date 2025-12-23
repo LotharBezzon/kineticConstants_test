@@ -9,7 +9,7 @@ import os
 from torch_geometric.data import Data, OnDiskDataset
 from tqdm import tqdm
 
-def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100, adj_matrix=None, n_perturbations=20, random_seed=42, L=None, only_steady_state=False, add_baths=False, **kwargs):
+def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100, adj_matrix=None, n_perturbations=20, random_seed=42, L=None, only_steady_state=False, dynamics=False, add_baths=False, **kwargs):
     """Produce simulations given the number of set of kinetic constants to sample and timesteps.
 
     Args:
@@ -33,7 +33,7 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
     for i in tqdm(range(n_samples)):
         simulator.build_graph(adjacency_matrix=adj_matrix)
         simulator.sample_free_energies(random_seed=random_seeds[i], n_samples=ks_per_sample)
-        simulator.run_equilibration()
+        simulator.run_equilibration(dynamics=dynamics)
         simulator.L = L if L is not None else np.eye(simulator.kinetic_constants.shape[1])
         if not only_steady_state:
             simulator.run_noisy_simulation(steps=n_timesteps, num_perturbations=n_perturbations)
@@ -41,13 +41,16 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
         for n in range(ks_per_sample):
             data = Data()
             if only_steady_state:
-                data.x = torch.tensor(simulator.concentrations[n, :].T, dtype=torch.float32).unsqueeze(-1)
+                if dynamics:
+                    data.x = torch.tensor(simulator.dynamics[:, n, :].T, dtype=torch.float32)
+                else:
+                    data.x = torch.tensor(simulator.concentrations[n, :].T, dtype=torch.float32).unsqueeze(-1)
                 if add_baths:
                     #baths_feat = torch.ones((data.x.size(0), data.x.size(1)), device=data.x.device)
-                    #baths_feat = data.x.clone()
-                    baths_feat = torch.tensor(simulator.get_simulation_parameters(only_steady_state=only_steady_state)[n]['free_energies'][data.x.size(0):], dtype=torch.float32).unsqueeze(-1)
+                    baths_feat = data.x.clone()
+                    #baths_feat = torch.tensor(simulator.get_simulation_parameters(only_steady_state=only_steady_state)[n]['free_energies'][data.x.size(0):], dtype=torch.float32).unsqueeze(-1)
                     #print(baths_feat.shape, data.x.shape)
-                    data.x = torch.cat([torch.stack([data.x, torch.zeros_like(data.x)], dim=1), torch.stack([baths_feat, torch.ones_like(baths_feat)], dim=1)], dim=0).squeeze(-1)
+                    data.x = torch.cat([torch.stack([data.x, torch.zeros((data.x.size(0), 1), device=data.x.device)], dim=1), torch.stack([baths_feat, torch.ones((baths_feat.size(0), 1), device=baths_feat.device)], dim=1)], dim=0).squeeze(-1)
             else:
                 data.x = torch.tensor(simulator.simulated_data[:, n, :].T, dtype=torch.float32)
 
@@ -70,9 +73,10 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
         
 
 class SimulatedGraphDataset(OnDiskDataset):
-    def __init__(self, root, transform=None, pre_filter=None, random_seed=42, only_steady_state=False, add_baths=False, adj_matrix=None, L=None, n_samples=10000, ks_per_sample=100, n_perturbations=20, chunk_size=1000, n_timesteps=1000):
+    def __init__(self, root, transform=None, pre_filter=None, random_seed=42, only_steady_state=False, dynamics=False, add_baths=False, adj_matrix=None, L=None, n_samples=10000, ks_per_sample=100, n_perturbations=20, chunk_size=1000, n_timesteps=1000):
         self.random_seed = random_seed
         self.only_steady_state = only_steady_state
+        self.dynamics = dynamics
         self.add_baths = add_baths
         self.adj_matrix = adj_matrix
         self.L = L
@@ -109,7 +113,8 @@ class SimulatedGraphDataset(OnDiskDataset):
                 adj_matrix=self.adj_matrix,
                 L=self.L,
                 only_steady_state=self.only_steady_state,
-                add_baths=self.add_baths
+                add_baths=self.add_baths,
+                dynamics=self.dynamics
             )
             if self.pre_filter is not None:
                 data_list = [data for data in data_list if self.pre_filter(data)]
@@ -129,6 +134,7 @@ if __name__ == "__main__":
     symmetric_adj_matrix = (adj_matrix + adj_matrix.T) > 0
     adj_matrix = symmetric_adj_matrix.astype(int)
     adj_matrix, _ = get_biggest_submatrix(adj_matrix)
+    print(adj_matrix.shape)
     correlation_matrix_partial = pd.read_csv('simulation/correlation_matrix.csv', index_col=0)
     correlation_matrix = pd.DataFrame(np.eye(len(all_lipids)), index=all_lipids, columns=all_lipids)
     for lipid in correlation_matrix_partial.index:
@@ -138,7 +144,7 @@ if __name__ == "__main__":
 
     #produce_simulations(10000, 1000, adj_matrix=adj_matrix, L=L, components_names=all_lipids, random_seed=12345)
 
-    db_root = 'simulation/simulated_graph_small_dataset_only_steady_state_free_energies'
+    db_root = 'simulation/simulated_graph_small_dataset_only_steady_state_free_energies_dynamics'
     os.makedirs(db_root, exist_ok=True)
 
     dataset = SimulatedGraphDataset(
@@ -152,5 +158,6 @@ if __name__ == "__main__":
         chunk_size=10,
         n_timesteps=100,
         only_steady_state=True,
-        add_baths=True
+        add_baths=True,
+        dynamics=True
     )
