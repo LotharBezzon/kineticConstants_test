@@ -49,8 +49,7 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
                     #baths_feat = torch.ones((data.x.size(0), data.x.size(1)), device=data.x.device)
                     baths_feat = data.x.clone()
                     #baths_feat = torch.tensor(simulator.get_simulation_parameters(only_steady_state=only_steady_state)[n]['free_energies'][data.x.size(0):], dtype=torch.float32).unsqueeze(-1)
-                    #print(baths_feat.shape, data.x.shape)
-                    data.x = torch.cat([torch.stack([data.x, torch.zeros((data.x.size(0), 1), device=data.x.device)], dim=1), torch.stack([baths_feat, torch.ones((baths_feat.size(0), 1), device=baths_feat.device)], dim=1)], dim=0).squeeze(-1)
+                    data.x = torch.cat([torch.hstack([data.x, torch.zeros((data.x.size(0), 1), device=data.x.device)]), torch.hstack([baths_feat, torch.ones((baths_feat.size(0), 1), device=baths_feat.device)])], dim=0).squeeze(-1)
             else:
                 data.x = torch.tensor(simulator.simulated_data[:, n, :].T, dtype=torch.float32)
 

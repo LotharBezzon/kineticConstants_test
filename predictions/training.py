@@ -42,7 +42,7 @@ if __name__ == "__main__":
     # Initialize model, loss function, and optimizer
     #model = SimpleGNN(in_channels=2000, hidden_channels=256, node_out_channels=4, edge_out_channels=2).to(device)
     #model_steady_state = SimpleGNN(in_channels=1, hidden_channels=64, node_out_channels=4, edge_out_channels=2).to(device)
-    model = SimpleGNN(in_channels=2, hidden_channels=64, node_out_channels=1, edge_out_channels=1).to(device)
+    model = SimpleGNN(in_channels=9, hidden_channels=64, node_out_channels=1, edge_out_channels=1).to(device)
     criterion = nn.KLDivLoss(reduction='batchmean')
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.8)
@@ -71,15 +71,15 @@ if __name__ == "__main__":
     epochs = 10  # Number of training epochs
     model_type = 'free_energies'  # 'kinetic_constants' or 'free_energies'
 
-    for graph in train_dataset[1:]:
+    '''for graph in train_dataset[:]:
         fe_true = np.array(graph.parameters['free_energies'])
         row, col = graph.edge_index
-        print(graph.x)
+        if graph.x.shape[1] != 9:
+            print(graph.x.shape)
         #print(np.array(graph.parameters['sparse_all_deltaG']))# - (fe_true[col.cpu().numpy()] - fe_true[row.cpu().numpy()]))
-        break
+        break'''
 
     for epoch in range(epochs):
-        break
         model.train()
         total_loss = 0.0
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):

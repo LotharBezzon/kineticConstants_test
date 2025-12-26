@@ -331,7 +331,8 @@ class Simulator:
 
         self.dynamics = []
         if dynamics:
-            time_indices = (np.logspace(0, 2.2, num=20, dtype=int) - 1).tolist()
+            time_indices = (np.logspace(0, 2.4, num=8, dtype=int) - 1).tolist()
+            #print("Dynamics will be recorded at time steps:", time_indices)
 
         k_out = np.einsum('bij->bi', self.kinetic_constants)
         for iteration in range(max_iterations):
@@ -555,16 +556,16 @@ if __name__ == "__main__":
     simulator.set_simulation_parameters(correlation_matrix=correlation_matrix)
 
     nodes_to_track = [i for i in range(len(all_lipids))][:connected_adj_matrix.shape[0]]
-    concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track)
+    concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track, dynamics=True)
 
     #print(simulator.concentrations[0])
 
     equilibrium_constants  = simulator.kinetic_constants[0] / (simulator.kinetic_constants[0].T + 1e-10)
 
-    print(simulator.degradation_constants[0])
+    '''print(simulator.degradation_constants[0])
     print(simulator.production_constants[0])
     print(simulator.kinetic_constants[0][connected_adj_matrix > 0])
-    print(simulator.concentrations[0] - simulator.production_constants[0] / (simulator.degradation_constants[0] + 1e-10))
+    print(simulator.concentrations[0] - simulator.production_constants[0] / (simulator.degradation_constants[0] + 1e-10))'''
 
 
     #simulated_data = simulator.run_noisy_simulation(steps=10, num_perturbations=10, track_concentrations=nodes_to_track)
