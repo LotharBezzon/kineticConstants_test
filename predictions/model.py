@@ -93,8 +93,9 @@ class SimpleGNN(nn.Module):
         self.graph_encoder = mlp(hidden_channels, hidden_channels, hidden_dim=2*hidden_channels)
         self.convs = nn.ModuleList()
         for _ in range(num_layers - 1):
-            self.convs.append(GCNConv(2*hidden_channels, 2*hidden_channels))
-        self.convs.append(GCNConv(2*hidden_channels, hidden_channels))
+            self.convs.append(GraphNorm(hidden_channels))
+            self.convs.append(GCNConv(hidden_channels, hidden_channels))
+        self.convs.append(GCNConv(hidden_channels, hidden_channels))
         self.node_predictor = mlp(hidden_channels, node_out_channels, bias=False)
         self.edge_predictor = mlp(2*hidden_channels, edge_out_channels)
 
@@ -111,10 +112,15 @@ class SimpleGNN(nn.Module):
                 batch = torch.cat([batch, torch.tensor([batch.max()+1]*baths_idxes.size(0), device=x.device)], dim=0)'''
         x = self.embed(x)
         g = global_mean_pool(x, batch)
-        h = torch.cat([x, self.graph_encoder(g)[batch]], dim=1)
+        #h = torch.cat([x, self.graph_encoder(g)[batch]], dim=1)
+        h = x
 
         for conv in self.convs[:-1]:
-            h = h + F.relu(conv(h, edge_index))
+            if isinstance(conv, GCNConv):
+                h = h + (conv(h, edge_index))
+            else:
+                h = conv(h)
+            
         h = self.convs[-1](h, edge_index)
         final_embedding = x + h
         node_preds = self.node_predictor(final_embedding)
@@ -123,7 +129,7 @@ class SimpleGNN(nn.Module):
             mask = row < col
             row, col = row[mask], col[mask]
         edge_preds = self.edge_predictor(torch.cat([final_embedding[row], final_embedding[col]], dim=1))
-        edge_preds -= edge_preds.mean()  # Centering the predictions
+        #edge_preds -= edge_preds.mean()  # Centering the predictions
 
         if return_embeddings:
             return node_preds, edge_preds, final_embedding

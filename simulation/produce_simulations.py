@@ -33,6 +33,7 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
     for i in tqdm(range(n_samples)):
         simulator.build_graph(adjacency_matrix=adj_matrix)
         simulator.sample_free_energies(random_seed=random_seeds[i], n_samples=ks_per_sample)
+        time_step = 1 / (10 * np.max(simulator.kinetic_constants))
         simulator.run_equilibration(dynamics=dynamics)
         simulator.L = L if L is not None else np.eye(simulator.kinetic_constants.shape[1])
         if not only_steady_state:
@@ -43,11 +44,12 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
             if only_steady_state:
                 if dynamics:
                     data.x = torch.tensor(simulator.dynamics[:, n, :].T, dtype=torch.float32)
+                    data.x = torch.hstack([data.x, torch.full((data.x.size(0), 1), time_step), torch.tensor(simulator.concentrations[n, :].T, dtype=torch.float32).unsqueeze(-1)])
                 else:
                     data.x = torch.tensor(simulator.concentrations[n, :].T, dtype=torch.float32).unsqueeze(-1)
                 if add_baths:
-                    #baths_feat = torch.ones((data.x.size(0), data.x.size(1)), device=data.x.device)
-                    baths_feat = data.x.clone()
+                    baths_feat = torch.zeros((data.x.size(0), data.x.size(1)), device=data.x.device)
+                    #baths_feat = data.x.clone()
                     #baths_feat = torch.tensor(simulator.get_simulation_parameters(only_steady_state=only_steady_state)[n]['free_energies'][data.x.size(0):], dtype=torch.float32).unsqueeze(-1)
                     data.x = torch.cat([torch.hstack([data.x, torch.zeros((data.x.size(0), 1), device=data.x.device)]), torch.hstack([baths_feat, torch.ones((baths_feat.size(0), 1), device=baths_feat.device)])], dim=0).squeeze(-1)
             else:
@@ -66,6 +68,7 @@ def simulations_for_predictor(n_samples=100, ks_per_sample=100, n_timesteps=100,
                 perm = data.edge_index[0].argsort(descending=False, stable=True)
                 data.edge_index = data.edge_index[:, perm]
             data.parameters = simulator.get_simulation_parameters(only_steady_state=only_steady_state)[n]
+
             data_list.append(data)
 
     return data_list

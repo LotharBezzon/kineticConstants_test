@@ -42,7 +42,7 @@ if __name__ == "__main__":
     # Initialize model, loss function, and optimizer
     #model = SimpleGNN(in_channels=2000, hidden_channels=256, node_out_channels=4, edge_out_channels=2).to(device)
     #model_steady_state = SimpleGNN(in_channels=1, hidden_channels=64, node_out_channels=4, edge_out_channels=2).to(device)
-    model = SimpleGNN(in_channels=9, hidden_channels=64, node_out_channels=1, edge_out_channels=1).to(device)
+    model = SimpleGNN(in_channels=13, hidden_channels=64, node_out_channels=1, edge_out_channels=1, num_layers=3).to(device)
     criterion = nn.KLDivLoss(reduction='batchmean')
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.8)
@@ -71,17 +71,22 @@ if __name__ == "__main__":
     epochs = 10  # Number of training epochs
     model_type = 'free_energies'  # 'kinetic_constants' or 'free_energies'
 
-    '''for graph in train_dataset[:]:
+    for graph in train_dataset[:]:
         fe_true = np.array(graph.parameters['free_energies'])
         row, col = graph.edge_index
+        print(graph.x[0])
         if graph.x.shape[1] != 9:
-            print(graph.x.shape)
+            #print(graph.x.shape)
+            pass
         #print(np.array(graph.parameters['sparse_all_deltaG']))# - (fe_true[col.cpu().numpy()] - fe_true[row.cpu().numpy()]))
-        break'''
+        break
 
     for epoch in range(epochs):
+        break
         model.train()
         total_loss = 0.0
+        total_deltaG_loss = 0.0
+        total_barriers_loss = 0.0
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
             batch = batch.to(device)
             #batch.x[:, 0] = torch.log(batch.x[:, 0] + 1e-10)  # Log-transform concentrations
@@ -92,17 +97,18 @@ if __name__ == "__main__":
                 free_energy_true = torch.from_numpy(np.array(batch.parameters['free_energies'])).float().to(device)
                 free_energy_true = free_energy_true.reshape(-1)
                 deltaG_true = torch.from_numpy(np.array(batch.parameters['sparse_all_deltaG'])).float().to(device).reshape(-1)
+                barriers_true = torch.from_numpy(np.array(batch.parameters['sparse_all_reaction_barriers']) - 60).float().to(device).reshape(-1)
                 row, col = batch.edge_index
 
-                node_out, edge_out = model(batch.x, batch.edge_index, batch.batch, free_energies=False, add_baths=False)
+                node_out, edge_out = model(batch.x - 1, batch.edge_index, batch.batch, free_energies=False, add_baths=False)
                 free_energies = node_out.squeeze(-1)
                 energy_barriers = edge_out.squeeze(-1)
 
                 deltaG = free_energies[col] - free_energies[row]
                 
-                loss_fe = mse_loss(free_energies, free_energy_true)
                 loss_deltaG = mse_loss(deltaG, deltaG_true)
-                loss = loss_deltaG + loss_fe
+                loss_barriers = mse_loss(energy_barriers, barriers_true)
+                loss = loss_deltaG + loss_barriers
 
             else:  # 'kinetic_constants'
                 node_out, edge_out = model(batch.x, batch.edge_index, batch.batch)
@@ -124,6 +130,8 @@ if __name__ == "__main__":
             scheduler.step()
 
             total_loss += loss.item()
+            total_deltaG_loss += loss_deltaG.item() if model_type == 'free_energies' else 0.0
+            total_barriers_loss += loss_barriers.item() if model_type == 'free_energies' else 0.0
         
         # Save checkpoint
         if (epoch + 1) % 2 == 0:
@@ -132,4 +140,7 @@ if __name__ == "__main__":
             
         
         print(f"Epoch {epoch+1}, Loss: {total_loss / len(train_loader)}")
+        if model_type == 'free_energies':
+            print(f"    DeltaG Loss: {total_deltaG_loss / len(train_loader)}")
+            print(f"    Barriers Loss: {total_barriers_loss / len(train_loader)}")
     

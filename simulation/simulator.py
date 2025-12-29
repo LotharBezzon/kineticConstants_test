@@ -204,9 +204,9 @@ class Simulator:
 
         self.kinetic_constants = 10**13 * np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], :symm_adjacency.shape[0]] / 2.4) * symm_adjacency[np.newaxis, :, :]
         self.sparse_kinetic_constants = self.kinetic_constants[:, symm_adjacency > 0]
-        self.production_constants = 10**13 *np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:][transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:] > 0] / 2.4)  # from nodes to baths
+        self.production_constants = np.exp(-transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:][transition_free_energies[:, :symm_adjacency.shape[0], symm_adjacency.shape[0]:] > 0])  # from nodes to baths
         self.production_constants = np.reshape(self.production_constants, (n_samples, symm_adjacency.shape[0]))
-        self.degradation_constants = 10**13 *np.exp(-transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]][transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]] > 0] / 2.4)  # from baths to nodes
+        self.degradation_constants = np.exp(-transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]][transition_free_energies[:, symm_adjacency.shape[0]:, :symm_adjacency.shape[0]] > 0])  # from baths to nodes
         self.degradation_constants = np.reshape(self.degradation_constants, (n_samples, symm_adjacency.shape[0]))
         self.dropout = np.random.random() * 0.1
         self.concentration_noise = 0.6 * np.random.random()
@@ -331,17 +331,14 @@ class Simulator:
 
         self.dynamics = []
         if dynamics:
-            time_indices = (np.logspace(0, 2.4, num=8, dtype=int) - 1).tolist()
+            #time_indices = (np.logspace(0, 2, num=8, dtype=int) - 1).tolist()
+            time_indices = (np.linspace(0, 10, num=10, dtype=int)).tolist()
             #print("Dynamics will be recorded at time steps:", time_indices)
 
         k_out = np.einsum('bij->bi', self.kinetic_constants)
         for iteration in range(max_iterations):
             if iteration == max_iterations - 1:
                 raise Exception("Simulation did not converge within the maximum number of iterations.")
-
-            if dynamics:
-                if iteration in time_indices:
-                    self.dynamics.append(concentrations.copy())
             
             production = np.einsum('bji,bj->bi', self.kinetic_constants, concentrations) + self.production_constants
             degradation = (k_out + self.degradation_constants) * concentrations
@@ -349,6 +346,10 @@ class Simulator:
 
             new_concentrations = concentrations + dCdt * time_step
             new_concentrations[new_concentrations < 0] = 0
+
+            if dynamics:
+                if iteration in time_indices:
+                    self.dynamics.append(new_concentrations.copy() - concentrations.copy())
 
             #if any value in new_concentrations is nan or inf, print concentrations, production, degradation, dCdt
             if np.any(np.isnan(new_concentrations)) or np.any(np.isinf(new_concentrations)):
@@ -558,7 +559,7 @@ if __name__ == "__main__":
     nodes_to_track = [i for i in range(len(all_lipids))][:connected_adj_matrix.shape[0]]
     concentrations = simulator.run_equilibration(track_concentrations=nodes_to_track, dynamics=True)
 
-    #print(simulator.concentrations[0])
+    print(simulator.sparse_all_reaction_barriers[0])
 
     equilibrium_constants  = simulator.kinetic_constants[0] / (simulator.kinetic_constants[0].T + 1e-10)
 
